@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ProjectSwitcher from "../components/ProjectSwitcher";
+import TestPanel from "../components/TestPanel";
 import WorkingFolderInput from "../components/WorkingFolderInput";
 import {
   SEED_NODES,
@@ -54,6 +55,7 @@ export default function StudioCanvas() {
   const [selectedEdgeId, setSelectedEdgeId] = useState(null);
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [connect, setConnect] = useState(null);
+  const [testPanelOpen, setTestPanelOpen] = useState(false);
 
   const containerRef = useRef(null);
   const dragState = useRef(null);
@@ -533,6 +535,22 @@ export default function StudioCanvas() {
 
   const activeProject = useMemo(() => (store ? getActiveProject(store) : null), [store]);
 
+  // The TestPanel needs the canvas state the user is currently looking at,
+  // not the last persisted snapshot. Compose a "live" project that overrides
+  // canvas with current in-memory nodes/edges. This lets a user run the graph
+  // immediately after editing without waiting for the debounced auto-save.
+  const liveProject = useMemo(() => {
+    if (!activeProject) return null;
+    return {
+      ...activeProject,
+      canvas: {
+        ...activeProject.canvas,
+        nodes,
+        edges,
+      },
+    };
+  }, [activeProject, nodes, edges]);
+
   const ghostPath = useMemo(() => {
     if (!connect) return null;
     const a = nodes.find((n) => n.id === connect.fromId);
@@ -750,6 +768,12 @@ export default function StudioCanvas() {
           drag empty space to pan · scroll to zoom · click a node to expand · drag a node to move ·
           drag from the right port to connect · click an edge then Delete to remove
         </div>
+
+        <TestPanel
+          project={liveProject}
+          isOpen={testPanelOpen}
+          onToggle={() => setTestPanelOpen((o) => !o)}
+        />
       </div>
 
       {activeProject && (
