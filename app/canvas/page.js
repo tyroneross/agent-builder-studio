@@ -1,0 +1,1153 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import ProjectSwitcher from "../components/ProjectSwitcher";
+import WorkingFolderInput from "../components/WorkingFolderInput";
+import {
+  SEED_NODES,
+  SEED_EDGES,
+  loadStore,
+  writeStore,
+  makeProject,
+  seedCanvas,
+  getActiveProject,
+  withProjectUpdated,
+  withCanvasUpdated,
+} from "../lib/projects";
+
+const ROLE_COLORS = {
+  agent: { soft: "var(--accent-soft)", border: "var(--accent)" },
+  guardrail: { soft: "var(--policy-soft)", border: "var(--policy)" },
+  orchestrator: { soft: "var(--accent-soft)", border: "var(--accent)" },
+  executor: { soft: "var(--tool-soft)", border: "var(--tool)" },
+  eval: { soft: "var(--eval-soft)", border: "var(--eval)" },
+  memory: { soft: "var(--memory-soft)", border: "var(--memory)" },
+};
+
+const ROLE_OPTIONS = ["agent", "guardrail", "orchestrator", "executor", "eval", "memory"];
+
+function edgeId(from, to) {
+  return `${from}->${to}`;
+}
+
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 2.5;
+
+const PERSIST_DEBOUNCE_MS = 350;
+
+export default function StudioCanvas() {
+  const router = useRouter();
+  // Canvas page is always rendered against an existing project, but we have to
+  // wait for hydration to know if any exists. If the load yields no projects,
+  // we send the user back to the landing page rather than crashing or seeding
+  // an unintended project.
+  const [store, setStore] = useState(null);
+  const [nodes, setNodes] = useState(SEED_NODES);
+  const [edges, setEdges] = useState(SEED_EDGES);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+
+  const [expandedId, setExpandedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState(null);
+  const [connect, setConnect] = useState(null);
+
+  const containerRef = useRef(null);
+  const dragState = useRef(null);
+  const hasHydratedRef = useRef(false);
+  const persistTimerRef = useRef(null);
+  const skipNextMirrorRef = useRef(false);
+
+  const screenToCanvas = useCallback(
+    (sx, sy) => {
+      const rect = containerRef.current?.getBoundingClientRect() ?? { left: 0, top: 0 };
+      return {
+        x: (sx - rect.left - pan.x) / zoom,
+        y: (sy - rect.top - pan.y) / zoom,
+      };
+    },
+    [pan, zoom],
+  );
+
+  function onCanvasPointerDown(e) {
+    if (e.button !== 0) return;
+    const target = e.target;
+    if (target.closest("[data-port]")) return;
+    if (target.closest("[data-edge-hit]")) return;
+    if (target.closest("[data-node]")) return;
+    dragState.current = {
+      type: "pan",
+      startX: e.clientX,
+      startY: e.clientY,
+      startPan: { ...pan },
+      moved: false,
+    };
+    setSelectedId(null);
+    setSelectedEdgeId(null);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function onPortPointerDown(e, node, side) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    if (side !== "out") return;
+    const startCanvas = {
+      x: node.x + node.w,
+      y: node.y + node.h / 2,
+    };
+    dragState.current = {
+      type: "connect",
+      fromId: node.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    };
+    setConnect({ fromId: node.id, ghost: startCanvas });
+    setSelectedId(null);
+    setSelectedEdgeId(null);
+    const canvasEl = containerRef.current;
+    if (canvasEl) {
+      try {
+        canvasEl.setPointerCapture(e.pointerId);
+      } catch {}
+    }
+  }
+
+  function onNodePointerDown(e, node) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    dragState.current = {
+      type: "node",
+      nodeId: node.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      startNode: { x: node.x, y: node.y },
+      moved: false,
+    };
+    setSelectedId(node.id);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e) {
+    const ds = dragState.current;
+    if (!ds) return;
+    const dx = e.clientX - ds.startX;
+    const dy = e.clientY - ds.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) ds.moved = true;
+    if (ds.type === "pan") {
+      setPan({ x: ds.startPan.x + dx, y: ds.startPan.y + dy });
+    } else if (ds.type === "node") {
+      const nx = ds.startNode.x + dx / zoom;
+      const ny = ds.startNode.y + dy / zoom;
+      setNodes((arr) => arr.map((n) => (n.id === ds.nodeId ? { ...n, x: nx, y: ny } : n)));
+    } else if (ds.type === "connect") {
+      const canvasPt = screenToCanvas(e.clientX, e.clientY);
+      setConnect((c) => (c ? { ...c, ghost: canvasPt } : c));
+    }
+  }
+
+  function onPointerUp(e) {
+    const ds = dragState.current;
+    if (!ds) {
+      if (connect) setConnect(null);
+      return;
+    }
+    if (ds.type === "node" && !ds.moved) {
+      setExpandedId((id) => (id === ds.nodeId ? null : ds.nodeId));
+    } else if (ds.type === "connect") {
+      const targetEl = document.elementFromPoint(e.clientX, e.clientY);
+      const portEl = targetEl?.closest?.("[data-port]");
+      if (portEl) {
+        const side = portEl.getAttribute("data-port");
+        const toId = portEl.getAttribute("data-node-id");
+        if (side === "in" && toId && toId !== ds.fromId) {
+          setEdges((arr) => {
+            if (arr.some((edge) => edge.from === ds.fromId && edge.to === toId)) {
+              return arr;
+            }
+            return [...arr, { id: edgeId(ds.fromId, toId), from: ds.fromId, to: toId }];
+          });
+        }
+      }
+      setConnect(null);
+    }
+    dragState.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+  }
+
+  function onWheel(e) {
+    if (!containerRef.current) return;
+    e.preventDefault();
+    const rect = containerRef.current.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    const nextZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * factor));
+    if (nextZoom === zoom) return;
+    const canvasX = (cx - pan.x) / zoom;
+    const canvasY = (cy - pan.y) / zoom;
+    const newPanX = cx - canvasX * nextZoom;
+    const newPanY = cy - canvasY * nextZoom;
+    setZoom(nextZoom);
+    setPan({ x: newPanX, y: newPanY });
+  }
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e) => onWheel(e);
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, [pan, zoom]);
+
+  function resetView() {
+    setPan({ x: 0, y: 0 });
+    setZoom(1);
+  }
+
+  function fitView() {
+    if (!containerRef.current || nodes.length === 0) return;
+    const minX = Math.min(...nodes.map((n) => n.x));
+    const minY = Math.min(...nodes.map((n) => n.y));
+    const maxX = Math.max(...nodes.map((n) => n.x + n.w));
+    const maxY = Math.max(...nodes.map((n) => n.y + n.h));
+    const rect = containerRef.current.getBoundingClientRect();
+    const padding = 60;
+    const z = Math.min(
+      (rect.width - padding * 2) / (maxX - minX),
+      (rect.height - padding * 2) / (maxY - minY),
+      1.5,
+    );
+    const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    setZoom(newZoom);
+    setPan({
+      x: rect.width / 2 - cx * newZoom,
+      y: rect.height / 2 - cy * newZoom,
+    });
+  }
+
+  function addNode() {
+    const id = `node-${Date.now()}`;
+    const center = containerRef.current
+      ? screenToCanvas(
+          containerRef.current.getBoundingClientRect().width / 2,
+          containerRef.current.getBoundingClientRect().height / 2,
+        )
+      : { x: 200, y: 200 };
+    setNodes((arr) => [
+      ...arr,
+      {
+        id,
+        role: "agent",
+        title: "New node",
+        description: "Describe what this node does.",
+        instructions: "",
+        x: center.x - 110,
+        y: center.y - 60,
+        w: 220,
+        h: 130,
+      },
+    ]);
+    setSelectedId(id);
+  }
+
+  const updateNodeField = useCallback((id, field, value) => {
+    setNodes((arr) => arr.map((n) => (n.id === id ? { ...n, [field]: value } : n)));
+  }, []);
+
+  function deleteSelected() {
+    if (selectedEdgeId) {
+      setEdges((arr) => arr.filter((edge) => edge.id !== selectedEdgeId));
+      setSelectedEdgeId(null);
+      return;
+    }
+    if (!selectedId) return;
+    setNodes((arr) => arr.filter((n) => n.id !== selectedId));
+    setEdges((arr) => arr.filter((edge) => edge.from !== selectedId && edge.to !== selectedId));
+    setSelectedId(null);
+    setExpandedId(null);
+  }
+
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === "Escape") {
+        if (connect) {
+          setConnect(null);
+          dragState.current = null;
+          return;
+        }
+        setSelectedId(null);
+        setSelectedEdgeId(null);
+        return;
+      }
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target && e.target.isContentEditable)) {
+        return;
+      }
+      if (selectedEdgeId) {
+        e.preventDefault();
+        setEdges((arr) => arr.filter((edge) => edge.id !== selectedEdgeId));
+        setSelectedEdgeId(null);
+      } else if (selectedId) {
+        e.preventDefault();
+        setNodes((arr) => arr.filter((n) => n.id !== selectedId));
+        setEdges((arr) => arr.filter((edge) => edge.from !== selectedId && edge.to !== selectedId));
+        setSelectedId(null);
+        setExpandedId(null);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedEdgeId, selectedId, connect]);
+
+  // Hydrate from localStorage on mount. If no projects exist, redirect home so
+  // the user can create one.
+  useEffect(() => {
+    const loaded = loadStore();
+    if (!loaded || !loaded.projects || loaded.projects.length === 0) {
+      router.replace("/");
+      return;
+    }
+    const active = getActiveProject(loaded);
+    if (!active) {
+      router.replace("/");
+      return;
+    }
+    skipNextMirrorRef.current = true;
+    setStore(loaded);
+    setNodes(active.canvas.nodes);
+    setEdges(active.canvas.edges);
+    setPan(active.canvas.pan);
+    setZoom(active.canvas.zoom);
+    hasHydratedRef.current = true;
+    return () => {
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
+      }
+    };
+  }, [router]);
+
+  // Debounced auto-save. Only mirrors back when the store has been hydrated and
+  // we haven't just swapped projects.
+  useEffect(() => {
+    if (!store) return;
+    if (!hasHydratedRef.current) return;
+    if (skipNextMirrorRef.current) {
+      skipNextMirrorRef.current = false;
+      return;
+    }
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      setStore((prev) => {
+        if (!prev) return prev;
+        const next = withCanvasUpdated(prev, prev.activeProjectId, { nodes, edges, pan, zoom });
+        writeStore(next);
+        return next;
+      });
+      persistTimerRef.current = null;
+    }, PERSIST_DEBOUNCE_MS);
+  }, [nodes, edges, pan, zoom, store]);
+
+  function clearAll() {
+    if (!store) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Reset this project's canvas to the seed graph? This will erase saved changes for this project.")
+    ) {
+      return;
+    }
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    const seeded = seedCanvas();
+    setStore((prev) => {
+      const next = withCanvasUpdated(prev, prev.activeProjectId, seeded);
+      writeStore(next);
+      return next;
+    });
+    skipNextMirrorRef.current = true;
+    setNodes(seeded.nodes);
+    setEdges(seeded.edges);
+    setPan(seeded.pan);
+    setZoom(seeded.zoom);
+    setSelectedId(null);
+    setSelectedEdgeId(null);
+    setExpandedId(null);
+    setHoveredNodeId(null);
+    setConnect(null);
+  }
+
+  function handleSelectProject(projectId) {
+    if (!store) return;
+    if (projectId === store.activeProjectId) return;
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    setStore((prev) => {
+      const flushed = withCanvasUpdated(prev, prev.activeProjectId, { nodes, edges, pan, zoom });
+      const next = { ...flushed, activeProjectId: projectId };
+      writeStore(next);
+      const target = next.projects.find((p) => p.id === projectId);
+      if (target) {
+        skipNextMirrorRef.current = true;
+        queueMicrotask(() => {
+          setNodes(target.canvas.nodes);
+          setEdges(target.canvas.edges);
+          setPan(target.canvas.pan);
+          setZoom(target.canvas.zoom);
+          setSelectedId(null);
+          setSelectedEdgeId(null);
+          setExpandedId(null);
+          setHoveredNodeId(null);
+          setConnect(null);
+        });
+      }
+      return next;
+    });
+  }
+
+  function handleNewProject(name) {
+    // Lightweight new-project flow from inside the canvas: creates a default
+    // project on the fly. The richer flow (goal/context/uploads) lives on the
+    // landing page.
+    const project = makeProject({ name });
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    setStore((prev) => {
+      const flushed = withCanvasUpdated(prev, prev.activeProjectId, { nodes, edges, pan, zoom });
+      const next = {
+        ...flushed,
+        activeProjectId: project.id,
+        projects: [...flushed.projects, project],
+      };
+      writeStore(next);
+      skipNextMirrorRef.current = true;
+      queueMicrotask(() => {
+        setNodes(project.canvas.nodes);
+        setEdges(project.canvas.edges);
+        setPan(project.canvas.pan);
+        setZoom(project.canvas.zoom);
+        setSelectedId(null);
+        setSelectedEdgeId(null);
+        setExpandedId(null);
+        setHoveredNodeId(null);
+        setConnect(null);
+      });
+      return next;
+    });
+  }
+
+  function handleRenameProject(projectId, name) {
+    setStore((prev) => {
+      const next = withProjectUpdated(prev, projectId, (p) => ({ ...p, name }));
+      writeStore(next);
+      return next;
+    });
+  }
+
+  function handleDeleteProject(projectId) {
+    setStore((prev) => {
+      if (!prev) return prev;
+      if (prev.projects.length <= 1) return prev;
+      const remaining = prev.projects.filter((p) => p.id !== projectId);
+      const wasActive = prev.activeProjectId === projectId;
+      const nextActiveId = wasActive ? remaining[0].id : prev.activeProjectId;
+      const next = { ...prev, projects: remaining, activeProjectId: nextActiveId };
+      writeStore(next);
+      if (wasActive) {
+        const target = next.projects.find((p) => p.id === nextActiveId);
+        if (target) {
+          skipNextMirrorRef.current = true;
+          queueMicrotask(() => {
+            setNodes(target.canvas.nodes);
+            setEdges(target.canvas.edges);
+            setPan(target.canvas.pan);
+            setZoom(target.canvas.zoom);
+            setSelectedId(null);
+            setSelectedEdgeId(null);
+            setExpandedId(null);
+            setHoveredNodeId(null);
+            setConnect(null);
+          });
+        }
+      }
+      return next;
+    });
+  }
+
+  function handleWorkingFolderChange(value) {
+    setStore((prev) => {
+      const next = withProjectUpdated(prev, prev.activeProjectId, (p) => ({
+        ...p,
+        workingFolder: value,
+      }));
+      writeStore(next);
+      return next;
+    });
+  }
+
+  function selectEdge(e, edge) {
+    e.stopPropagation();
+    setSelectedEdgeId(edge.id);
+    setSelectedId(null);
+  }
+
+  const edgePaths = useMemo(() => {
+    const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+    return edges
+      .map((edge) => {
+        const a = byId[edge.from];
+        const b = byId[edge.to];
+        if (!a || !b) return null;
+        const x1 = a.x + a.w;
+        const y1 = a.y + a.h / 2;
+        const x2 = b.x;
+        const y2 = b.y + b.h / 2;
+        const mx = (x1 + x2) / 2;
+        return {
+          id: edge.id,
+          edge,
+          d: `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`,
+        };
+      })
+      .filter(Boolean);
+  }, [nodes, edges]);
+
+  const selectedNode = useMemo(
+    () => (selectedId ? nodes.find((n) => n.id === selectedId) ?? null : null),
+    [nodes, selectedId],
+  );
+
+  const activeProject = useMemo(() => (store ? getActiveProject(store) : null), [store]);
+
+  const ghostPath = useMemo(() => {
+    if (!connect) return null;
+    const a = nodes.find((n) => n.id === connect.fromId);
+    if (!a) return null;
+    const x1 = a.x + a.w;
+    const y1 = a.y + a.h / 2;
+    const x2 = connect.ghost.x;
+    const y2 = connect.ghost.y;
+    const mx = (x1 + x2) / 2;
+    return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+  }, [connect, nodes]);
+
+  // Loading state until the store hydrates. This usually flashes for a frame
+  // and then mounts the toolbar; if the store is empty we redirect to "/" in
+  // the hydration effect above.
+  if (!store) {
+    return <div data-canvas-loading style={{ padding: 24, color: "var(--muted)" }}>Loading…</div>;
+  }
+
+  return (
+    <div className="studio-shell">
+      <header className="studio-toolbar">
+        <div className="studio-brand">
+          <Link href="/" className="studio-back" data-canvas-projects-link>
+            ← Projects
+          </Link>
+          <span className="studio-eyebrow">Agent Studio</span>
+          <span className="studio-title">{activeProject?.name || "Canvas"}</span>
+        </div>
+
+        <div className="studio-tools">
+          <ProjectSwitcher
+            projects={store.projects}
+            activeProjectId={store.activeProjectId}
+            onSelect={handleSelectProject}
+            onNew={handleNewProject}
+            onRename={handleRenameProject}
+            onDelete={handleDeleteProject}
+          />
+          <span className="tool-sep" />
+          <button className="tool-btn" onClick={addNode} title="Add node">
+            + node
+          </button>
+          <button
+            className="tool-btn"
+            onClick={deleteSelected}
+            disabled={!selectedId && !selectedEdgeId}
+            title="Delete selected"
+          >
+            delete
+          </button>
+          <span className="tool-sep" />
+          <button className="tool-btn" onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z * 0.85))} title="Zoom out">
+            −
+          </button>
+          <span className="tool-zoom">{Math.round(zoom * 100)}%</span>
+          <button className="tool-btn" onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z * 1.15))} title="Zoom in">
+            +
+          </button>
+          <button className="tool-btn" onClick={fitView} title="Fit view">
+            fit
+          </button>
+          <button className="tool-btn" onClick={resetView} title="Reset view">
+            reset
+          </button>
+          <span className="tool-sep" />
+          <button
+            className="tool-btn"
+            onClick={clearAll}
+            title="Clear this project's canvas and reset to seed graph"
+          >
+            clear
+          </button>
+        </div>
+      </header>
+
+      <div className="studio-body">
+      <div
+        ref={containerRef}
+        className="studio-canvas"
+        onPointerDown={onCanvasPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        <div
+          className="studio-grid"
+          style={{
+            backgroundPosition: `${pan.x}px ${pan.y}px`,
+            backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
+          }}
+        />
+
+        <div
+          className="studio-stage"
+          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+        >
+          <svg className="studio-edges" width="4000" height="4000">
+            <defs>
+              <marker
+                id="arrow"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="6"
+                markerHeight="6"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--border-strong)" />
+              </marker>
+              <marker
+                id="arrow-selected"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="6"
+                markerHeight="6"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)" />
+              </marker>
+            </defs>
+            {edgePaths.map((p) => {
+              const isSelected = selectedEdgeId === p.id;
+              return (
+                <g key={p.id}>
+                  <path
+                    data-edge-hit
+                    d={p.d}
+                    stroke="transparent"
+                    strokeWidth="14"
+                    fill="none"
+                    style={{ pointerEvents: "stroke", cursor: "pointer" }}
+                    onPointerDown={(e) => selectEdge(e, p.edge)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      selectEdge(e, p.edge);
+                    }}
+                  />
+                  <path
+                    d={p.d}
+                    stroke={isSelected ? "var(--accent)" : "var(--border-strong)"}
+                    strokeWidth={isSelected ? 2.5 : 2}
+                    fill="none"
+                    markerEnd={isSelected ? "url(#arrow-selected)" : "url(#arrow)"}
+                    style={{ pointerEvents: "none" }}
+                  />
+                </g>
+              );
+            })}
+            {ghostPath && (
+              <path
+                d={ghostPath}
+                stroke="var(--accent)"
+                strokeWidth="2"
+                strokeDasharray="6 5"
+                fill="none"
+                opacity="0.85"
+                style={{ pointerEvents: "none" }}
+              />
+            )}
+          </svg>
+
+          {nodes.map((n) => {
+            const c = ROLE_COLORS[n.role] ?? ROLE_COLORS.agent;
+            const isExpanded = expandedId === n.id;
+            const isSelected = selectedId === n.id;
+            const isHovered = hoveredNodeId === n.id;
+            const showPorts = isHovered || isSelected || (connect && connect.fromId !== n.id);
+            return (
+              <div
+                key={n.id}
+                data-node
+                className={`studio-node ${isSelected ? "is-selected" : ""} ${isExpanded ? "is-expanded" : ""}`}
+                style={{
+                  left: n.x,
+                  top: n.y,
+                  width: n.w,
+                  minHeight: n.h,
+                  background: c.soft,
+                  borderColor: isSelected ? c.border : "transparent",
+                }}
+                onPointerDown={(e) => onNodePointerDown(e, n)}
+                onPointerEnter={() => setHoveredNodeId(n.id)}
+                onPointerLeave={() => setHoveredNodeId((id) => (id === n.id ? null : id))}
+              >
+                <div className="studio-node-role" style={{ color: c.border }}>
+                  {n.role.toUpperCase()}
+                </div>
+                <div className="studio-node-title">{n.title}</div>
+                <div className={`studio-node-desc ${isExpanded ? "" : "is-clamped"}`}>
+                  {n.description}
+                </div>
+                <div
+                  data-port="in"
+                  data-node-id={n.id}
+                  className={`studio-port studio-port-in ${showPorts ? "is-visible" : ""}`}
+                  style={{ borderColor: c.border }}
+                  title="Drop a connection here"
+                />
+                <div
+                  data-port="out"
+                  data-node-id={n.id}
+                  className={`studio-port studio-port-out ${showPorts ? "is-visible" : ""}`}
+                  style={{ borderColor: c.border, background: c.border }}
+                  title="Drag to connect to another node"
+                  onPointerDown={(e) => onPortPointerDown(e, n, "out")}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="studio-help">
+          drag empty space to pan · scroll to zoom · click a node to expand · drag a node to move ·
+          drag from the right port to connect · click an edge then Delete to remove
+        </div>
+      </div>
+
+      {activeProject && (
+        <aside className="studio-panel" aria-label="Project and node properties">
+          <div className="panel-header">
+            <span className="studio-eyebrow">Project</span>
+            <span className="panel-id" title="Project id">{activeProject.id}</span>
+          </div>
+
+          <div className="panel-body">
+            <WorkingFolderInput
+              value={activeProject.workingFolder}
+              onChange={handleWorkingFolderChange}
+            />
+
+            {selectedNode ? (
+              <>
+                <div className="panel-divider" />
+                <div className="panel-subheader">
+                  <span className="studio-eyebrow">Node</span>
+                  <span className="panel-id" title="Node id">{selectedNode.id}</span>
+                </div>
+                <label className="panel-field">
+                  <span className="panel-label">Title</span>
+                  <input
+                    className="panel-input"
+                    type="text"
+                    value={selectedNode.title}
+                    placeholder="Untitled node"
+                    onChange={(e) => updateNodeField(selectedNode.id, "title", e.target.value)}
+                  />
+                </label>
+
+                <label className="panel-field">
+                  <span className="panel-label">Description</span>
+                  <textarea
+                    className="panel-input panel-textarea"
+                    rows={3}
+                    value={selectedNode.description}
+                    onChange={(e) => updateNodeField(selectedNode.id, "description", e.target.value)}
+                  />
+                </label>
+
+                <label className="panel-field">
+                  <span className="panel-label">Role</span>
+                  <select
+                    className="panel-input panel-select"
+                    value={selectedNode.role}
+                    onChange={(e) => updateNodeField(selectedNode.id, "role", e.target.value)}
+                  >
+                    {ROLE_OPTIONS.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="panel-field">
+                  <span className="panel-label">Instructions</span>
+                  <textarea
+                    className="panel-input panel-textarea panel-textarea-tall"
+                    rows={8}
+                    value={selectedNode.instructions ?? ""}
+                    placeholder="What should this node do? (system prompt, policy, etc.)"
+                    onChange={(e) => updateNodeField(selectedNode.id, "instructions", e.target.value)}
+                  />
+                </label>
+              </>
+            ) : (
+              <p className="panel-empty">Select a node to edit its title, role, and instructions.</p>
+            )}
+          </div>
+
+          {selectedNode && (
+            <div className="panel-footer">
+              <button
+                className="tool-btn panel-delete"
+                onClick={deleteSelected}
+                title="Delete this node and any connected edges"
+              >
+                delete node
+              </button>
+            </div>
+          )}
+        </aside>
+      )}
+      </div>
+
+      <style jsx>{`
+        .studio-shell {
+          position: fixed;
+          inset: 0;
+          display: flex;
+          flex-direction: column;
+        }
+        .studio-toolbar {
+          height: 56px;
+          padding: 0 18px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          border-bottom: 1px solid var(--border);
+          background: var(--surface);
+          z-index: 2;
+        }
+        .studio-brand {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          line-height: 1.1;
+        }
+        .studio-back {
+          font-size: 12px;
+          color: var(--muted);
+          text-decoration: none;
+          padding: 4px 8px;
+          border-radius: 6px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+        }
+        .studio-back:hover {
+          color: var(--accent-strong);
+          border-color: var(--accent);
+        }
+        .studio-eyebrow {
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+        .studio-title {
+          font-size: 16px;
+          font-weight: 600;
+        }
+        .studio-tools {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .tool-btn {
+          height: 32px;
+          padding: 0 12px;
+          border-radius: 8px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          font-size: 13px;
+          color: var(--ink);
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .tool-btn:hover:not(:disabled) {
+          border-color: var(--accent);
+          color: var(--accent-strong);
+        }
+        .tool-btn:disabled {
+          color: var(--faint);
+          cursor: not-allowed;
+        }
+        .tool-zoom {
+          width: 56px;
+          text-align: center;
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 12px;
+          color: var(--muted);
+        }
+        .tool-sep {
+          width: 1px;
+          height: 22px;
+          background: var(--border);
+          margin: 0 6px;
+        }
+        .studio-body {
+          flex: 1;
+          display: flex;
+          flex-direction: row;
+          min-height: 0;
+        }
+        .studio-canvas {
+          position: relative;
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+          background: var(--bg);
+          touch-action: none;
+          cursor: grab;
+        }
+        .studio-canvas:active {
+          cursor: grabbing;
+        }
+        .studio-grid {
+          position: absolute;
+          inset: 0;
+          background-image:
+            linear-gradient(to right, var(--grid) 1px, transparent 1px),
+            linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+          pointer-events: none;
+        }
+        .studio-stage {
+          position: absolute;
+          inset: 0;
+          transform-origin: 0 0;
+          will-change: transform;
+        }
+        .studio-edges {
+          position: absolute;
+          left: 0;
+          top: 0;
+          pointer-events: none;
+          overflow: visible;
+        }
+        .studio-node {
+          position: absolute;
+          padding: 12px 14px;
+          border-radius: 12px;
+          border: 2px solid transparent;
+          background: var(--surface);
+          box-shadow: var(--shadow);
+          cursor: grab;
+          user-select: none;
+          transition: box-shadow 120ms ease;
+        }
+        .studio-node.is-selected {
+          box-shadow: var(--shadow-lift);
+        }
+        .studio-node.is-expanded {
+          z-index: 5;
+        }
+        .studio-node-role {
+          font-size: 10px;
+          letter-spacing: 0.08em;
+          font-weight: 600;
+          margin-bottom: 4px;
+        }
+        .studio-node-title {
+          font-size: 16px;
+          font-weight: 600;
+          margin-bottom: 6px;
+        }
+        .studio-node-desc {
+          font-size: 13px;
+          color: var(--muted);
+          line-height: 1.4;
+        }
+        .studio-node-desc.is-clamped {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        .studio-port {
+          position: absolute;
+          top: 50%;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          border: 2px solid var(--border-strong);
+          background: var(--surface);
+          transform: translate(-50%, -50%);
+          opacity: 0;
+          transition: opacity 100ms ease, transform 100ms ease;
+          pointer-events: none;
+          cursor: crosshair;
+        }
+        .studio-port.is-visible {
+          opacity: 1;
+          pointer-events: auto;
+        }
+        .studio-port:hover {
+          transform: translate(-50%, -50%) scale(1.25);
+        }
+        .studio-port-in {
+          left: 0;
+        }
+        .studio-port-out {
+          left: 100%;
+        }
+        .studio-help {
+          position: absolute;
+          left: 18px;
+          bottom: 14px;
+          font-size: 12px;
+          color: var(--faint);
+          pointer-events: none;
+          background: rgba(255, 255, 255, 0.7);
+          padding: 4px 10px;
+          border-radius: 6px;
+        }
+        .studio-panel {
+          width: 340px;
+          flex-shrink: 0;
+          display: flex;
+          flex-direction: column;
+          background: var(--surface);
+          border-left: 1px solid var(--border);
+          overflow-y: auto;
+          z-index: 1;
+        }
+        .panel-header,
+        .panel-subheader {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          padding: 14px 18px 10px;
+        }
+        .panel-header {
+          border-bottom: 1px solid var(--border);
+        }
+        .panel-subheader {
+          padding: 4px 0 6px;
+        }
+        .panel-divider {
+          height: 1px;
+          background: var(--border);
+          margin: 8px 0 0;
+        }
+        .panel-id {
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 11px;
+          color: var(--faint);
+        }
+        .panel-body {
+          padding: 14px 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          flex: 1;
+        }
+        .panel-empty {
+          font-size: 12px;
+          color: var(--muted);
+          margin: 4px 0 0;
+        }
+        .panel-field {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .panel-label {
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+        .panel-input {
+          width: 100%;
+          padding: 8px 10px;
+          font-family: inherit;
+          font-size: 13px;
+          color: var(--ink);
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          outline: none;
+          transition: border-color 100ms ease, box-shadow 100ms ease;
+        }
+        .panel-input:hover {
+          border-color: var(--border-strong);
+        }
+        .panel-input:focus {
+          border-color: var(--accent);
+          box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+        .panel-textarea {
+          resize: none;
+          line-height: 1.4;
+          min-height: 64px;
+        }
+        .panel-textarea-tall {
+          min-height: 140px;
+        }
+        .panel-select {
+          appearance: none;
+          background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+            linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+          background-position:
+            calc(100% - 16px) 50%,
+            calc(100% - 11px) 50%;
+          background-size: 5px 5px, 5px 5px;
+          background-repeat: no-repeat;
+          padding-right: 28px;
+          cursor: pointer;
+        }
+        .panel-footer {
+          padding: 12px 18px 18px;
+          border-top: 1px solid var(--border);
+        }
+        .panel-delete {
+          width: 100%;
+          color: var(--danger);
+          border-color: var(--border);
+        }
+        .panel-delete:hover:not(:disabled) {
+          border-color: var(--danger);
+          color: var(--danger);
+          background: var(--danger-soft);
+        }
+      `}</style>
+    </div>
+  );
+}

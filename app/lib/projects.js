@@ -1,25 +1,36 @@
-// Project storage layer. Owns the on-disk shape, v1→v2 migration, and the
-// helpers the canvas uses to read/write projects. Pure module — no React.
+// Project storage layer. Owns the on-disk shape, migrations, and the helpers
+// the canvas + landing page use to read/write projects. Pure module — no React.
 //
-// Storage shape (v2):
+// Storage shape (v3):
 //   {
-//     version: 2,
+//     version: 3,
 //     activeProjectId: string,
 //     projects: [
 //       {
 //         id: string,
 //         name: string,
-//         workingFolder: string,   // absolute path or ""
-//         createdAt: string,       // ISO
+//         workingFolder: string,         // absolute path or ""
+//         createdAt: string,             // ISO
+//         goal: string,                  // Pass 5 — short statement of the agent goal
+//         context: string,               // Pass 5 — background, prior decisions, links
+//         outcome: string,               // Pass 5 — what success looks like
+//         uploads: [                     // Pass 5 — files saved into <workingFolder>/uploads/
+//           { name, size, savedPath, uploadedAt }
+//         ],
 //         canvas: { nodes, edges, pan, zoom }
 //       },
 //       ...
 //     ]
 //   }
+//
+// Migration chain: v1 -> v3 (single hop), v2 -> v3 (additive defaults). Both
+// happen lazily on first load and persist v3 immediately. Old keys are left
+// in place so a user can recover if a migration produced something unexpected.
 
 export const STORAGE_KEY_V1 = "agent-studio:v1";
 export const STORAGE_KEY_V2 = "agent-studio:v2";
-export const STORAGE_VERSION_V2 = 2;
+export const STORAGE_KEY_V3 = "agent-studio:v3";
+export const STORAGE_VERSION_V3 = 3;
 
 // Seed graph reused by both new-project flow and v1 hydration default.
 export const SEED_NODES = [
@@ -103,12 +114,24 @@ export function seedCanvas() {
   };
 }
 
-export function makeProject({ name, workingFolder = "", canvas } = {}) {
+export function makeProject({
+  name,
+  workingFolder = "",
+  goal = "",
+  context = "",
+  outcome = "",
+  uploads = [],
+  canvas,
+} = {}) {
   return {
     id: makeProjectId(),
     name: name || "Untitled project",
     workingFolder,
     createdAt: new Date().toISOString(),
+    goal,
+    context,
+    outcome,
+    uploads,
     canvas: canvas || seedCanvas(),
   };
 }
@@ -138,25 +161,78 @@ function normalizeCanvas(canvas) {
   };
 }
 
-// Try to read v2; if absent, try to migrate from v1; if neither exists,
-// return null (caller seeds a default).
+// Defensive normalization for an upload record read from storage.
+function normalizeUpload(u) {
+  if (!u || typeof u !== "object") return null;
+  if (typeof u.name !== "string" || typeof u.savedPath !== "string") return null;
+  return {
+    name: u.name,
+    size: typeof u.size === "number" ? u.size : 0,
+    savedPath: u.savedPath,
+    uploadedAt: typeof u.uploadedAt === "string" ? u.uploadedAt : new Date().toISOString(),
+  };
+}
+
+function normalizeProject(p) {
+  return {
+    id: p.id,
+    name: p.name,
+    workingFolder: typeof p.workingFolder === "string" ? p.workingFolder : "",
+    createdAt: typeof p.createdAt === "string" ? p.createdAt : new Date().toISOString(),
+    goal: typeof p.goal === "string" ? p.goal : "",
+    context: typeof p.context === "string" ? p.context : "",
+    outcome: typeof p.outcome === "string" ? p.outcome : "",
+    uploads: Array.isArray(p.uploads) ? p.uploads.map(normalizeUpload).filter(Boolean) : [],
+    canvas: normalizeCanvas(p.canvas),
+  };
+}
+
+// Try v3, then v2 (with additive migration), then v1 (with structural migration),
+// else null (caller seeds a default).
 export function loadStore() {
   if (typeof window === "undefined") return null;
-  // Prefer v2 if present.
+
+  // Prefer v3 if present.
+  try {
+    const rawV3 = window.localStorage.getItem(STORAGE_KEY_V3);
+    if (rawV3) {
+      const parsed = JSON.parse(rawV3);
+      if (parsed && parsed.version === STORAGE_VERSION_V3 && Array.isArray(parsed.projects)) {
+        return hydrateStore(parsed);
+      }
+      // Malformed v3 — fall through.
+    }
+  } catch (err) {
+    console.warn("[agent-studio] failed to read v3 store:", err);
+  }
+
+  // v2 -> v3: read once, default new fields, persist v3.
   try {
     const rawV2 = window.localStorage.getItem(STORAGE_KEY_V2);
     if (rawV2) {
-      const parsed = JSON.parse(rawV2);
-      if (parsed && parsed.version === STORAGE_VERSION_V2 && Array.isArray(parsed.projects)) {
-        return hydrateStore(parsed);
+      const v2 = JSON.parse(rawV2);
+      if (v2 && v2.version === 2 && Array.isArray(v2.projects)) {
+        const upgraded = {
+          version: STORAGE_VERSION_V3,
+          activeProjectId: v2.activeProjectId,
+          projects: v2.projects.map((p) => ({
+            ...p,
+            goal: typeof p.goal === "string" ? p.goal : "",
+            context: typeof p.context === "string" ? p.context : "",
+            outcome: typeof p.outcome === "string" ? p.outcome : "",
+            uploads: Array.isArray(p.uploads) ? p.uploads : [],
+          })),
+        };
+        const hydrated = hydrateStore(upgraded);
+        writeStore(hydrated);
+        return hydrated;
       }
-      // Malformed v2 — fall through to v1 migration / fresh seed.
     }
   } catch (err) {
-    console.warn("[agent-studio] failed to read v2 store:", err);
+    console.warn("[agent-studio] failed to migrate v2 store:", err);
   }
 
-  // One-time migration from v1.
+  // v1 -> v3: structural migration (single project from raw nodes/edges).
   try {
     const rawV1 = window.localStorage.getItem(STORAGE_KEY_V1);
     if (rawV1) {
@@ -170,13 +246,10 @@ export function loadStore() {
         });
         const project = makeProject({ name: "Default", workingFolder: "", canvas });
         const store = {
-          version: STORAGE_VERSION_V2,
+          version: STORAGE_VERSION_V3,
           activeProjectId: project.id,
           projects: [project],
         };
-        // Persist v2 immediately and leave v1 in place — only v2 is read going forward,
-        // so v1 becomes dead state we don't need to delete (and keeping it lets a user
-        // recover if migration ever produced something they didn't want).
         writeStore(store);
         return store;
       }
@@ -188,25 +261,18 @@ export function loadStore() {
   return null;
 }
 
-// Validate + repair a parsed v2 store. Guarantees at least one project and a
+// Validate + repair a parsed v3 store. Guarantees at least one project and a
 // valid activeProjectId pointing at one of them.
 function hydrateStore(parsed) {
   const projects = parsed.projects
     .filter((p) => p && typeof p.id === "string" && typeof p.name === "string")
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      workingFolder: typeof p.workingFolder === "string" ? p.workingFolder : "",
-      createdAt: typeof p.createdAt === "string" ? p.createdAt : new Date().toISOString(),
-      canvas: normalizeCanvas(p.canvas),
-    }));
+    .map(normalizeProject);
 
   if (projects.length === 0) {
-    const fallback = makeProject({ name: "Default" });
     return {
-      version: STORAGE_VERSION_V2,
-      activeProjectId: fallback.id,
-      projects: [fallback],
+      version: STORAGE_VERSION_V3,
+      activeProjectId: null,
+      projects: [],
     };
   }
 
@@ -215,7 +281,7 @@ function hydrateStore(parsed) {
     : projects[0].id;
 
   return {
-    version: STORAGE_VERSION_V2,
+    version: STORAGE_VERSION_V3,
     activeProjectId: activeId,
     projects,
   };
@@ -225,23 +291,34 @@ export function writeStore(store) {
   if (typeof window === "undefined") return;
   try {
     const payload = {
-      version: STORAGE_VERSION_V2,
+      version: STORAGE_VERSION_V3,
       activeProjectId: store.activeProjectId,
       projects: store.projects,
     };
-    window.localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(payload));
+    window.localStorage.setItem(STORAGE_KEY_V3, JSON.stringify(payload));
   } catch (err) {
-    console.warn("[agent-studio] failed to persist v2 store:", err);
+    console.warn("[agent-studio] failed to persist v3 store:", err);
   }
 }
 
 export function clearStore() {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.removeItem(STORAGE_KEY_V2);
+    window.localStorage.removeItem(STORAGE_KEY_V3);
   } catch (err) {
-    console.warn("[agent-studio] failed to clear v2 store:", err);
+    console.warn("[agent-studio] failed to clear v3 store:", err);
   }
+}
+
+// Empty-store factory. The landing page uses this when no stored projects
+// exist. The canvas page should never be reached without an active project,
+// but guards by redirecting in that case.
+export function emptyStore() {
+  return {
+    version: STORAGE_VERSION_V3,
+    activeProjectId: null,
+    projects: [],
+  };
 }
 
 // Pure helpers for the reducer-style updates page.js performs.
@@ -260,6 +337,7 @@ export function withCanvasUpdated(store, projectId, canvasPatch) {
 }
 
 export function getActiveProject(store) {
+  if (!store || !Array.isArray(store.projects) || store.projects.length === 0) return null;
   return store.projects.find((p) => p.id === store.activeProjectId) ?? store.projects[0] ?? null;
 }
 
