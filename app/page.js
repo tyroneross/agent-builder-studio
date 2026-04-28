@@ -17,6 +17,7 @@ const SEED_NODES = [
     role: "agent",
     title: "Intake",
     description: "Normalize the user goal and identify missing inputs before routing.",
+    instructions: "",
     x: 120,
     y: 200,
     w: 220,
@@ -27,6 +28,7 @@ const SEED_NODES = [
     role: "guardrail",
     title: "Policy gate",
     description: "Classify read, write, network, shell, and credential intent against permissions.",
+    instructions: "",
     x: 400,
     y: 200,
     w: 220,
@@ -37,6 +39,7 @@ const SEED_NODES = [
     role: "orchestrator",
     title: "Orchestrator",
     description: "Choose the next action from the active tool pool.",
+    instructions: "",
     x: 680,
     y: 200,
     w: 220,
@@ -47,6 +50,7 @@ const SEED_NODES = [
     role: "executor",
     title: "Executor",
     description: "Run approved reads or writes and return structured results.",
+    instructions: "",
     x: 680,
     y: 380,
     w: 220,
@@ -57,12 +61,15 @@ const SEED_NODES = [
     role: "eval",
     title: "Eval check",
     description: "Check output, permissions, and guardrail invariants.",
+    instructions: "",
     x: 960,
     y: 290,
     w: 220,
     h: 130,
   },
 ];
+
+const ROLE_OPTIONS = ["agent", "guardrail", "orchestrator", "executor", "eval", "memory"];
 
 const SEED_EDGES = [
   { id: "intake->policy", from: "intake", to: "policy" },
@@ -337,6 +344,7 @@ export default function StudioCanvas() {
         role: "agent",
         title: "New node",
         description: "Describe what this node does.",
+        instructions: "",
         x: center.x - 110,
         y: center.y - 60,
         w: 220,
@@ -345,6 +353,11 @@ export default function StudioCanvas() {
     ]);
     setSelectedId(id);
   }
+
+  // Update one field of a node by id. Used by the side panel inputs.
+  const updateNodeField = useCallback((id, field, value) => {
+    setNodes((arr) => arr.map((n) => (n.id === id ? { ...n, [field]: value } : n)));
+  }, []);
 
   function deleteSelected() {
     if (selectedEdgeId) {
@@ -364,9 +377,16 @@ export default function StudioCanvas() {
   // Escape cancels an in-flight connection drag.
   useEffect(() => {
     function onKeyDown(e) {
-      if (e.key === "Escape" && connect) {
-        setConnect(null);
-        dragState.current = null;
+      if (e.key === "Escape") {
+        if (connect) {
+          setConnect(null);
+          dragState.current = null;
+          return;
+        }
+        // Escape also closes the side panel by clearing selection. Safe to call
+        // even when nothing is selected.
+        setSelectedId(null);
+        setSelectedEdgeId(null);
         return;
       }
       if (e.key !== "Delete" && e.key !== "Backspace") return;
@@ -395,7 +415,12 @@ export default function StudioCanvas() {
   useEffect(() => {
     const persisted = readPersistedState();
     if (persisted) {
-      setNodes(persisted.nodes);
+      // Defensive default: older saves predate the `instructions` field.
+      // Fill the field as empty so panel inputs are always controlled.
+      const hydratedNodes = persisted.nodes.map((n) =>
+        typeof n.instructions === "string" ? n : { ...n, instructions: "" },
+      );
+      setNodes(hydratedNodes);
       setEdges(persisted.edges);
       setPan(persisted.pan);
       setZoom(persisted.zoom);
@@ -469,6 +494,13 @@ export default function StudioCanvas() {
       .filter(Boolean);
   }, [nodes, edges]);
 
+  // The currently selected node, or null if nothing or only an edge is selected.
+  // Drives the right-hand properties panel.
+  const selectedNode = useMemo(
+    () => (selectedId ? nodes.find((n) => n.id === selectedId) ?? null : null),
+    [nodes, selectedId],
+  );
+
   // Ghost edge during a connection drag.
   const ghostPath = useMemo(() => {
     if (!connect) return null;
@@ -527,6 +559,7 @@ export default function StudioCanvas() {
         </div>
       </header>
 
+      <div className="studio-body">
       <div
         ref={containerRef}
         className="studio-canvas"
@@ -670,6 +703,75 @@ export default function StudioCanvas() {
         </div>
       </div>
 
+      {selectedNode && (
+        <aside className="studio-panel" aria-label="Node properties">
+          <div className="panel-header">
+            <span className="studio-eyebrow">Node</span>
+            <span className="panel-id" title="Node id">{selectedNode.id}</span>
+          </div>
+
+          <div className="panel-body">
+            <label className="panel-field">
+              <span className="panel-label">Title</span>
+              <input
+                className="panel-input"
+                type="text"
+                value={selectedNode.title}
+                placeholder="Untitled node"
+                onChange={(e) => updateNodeField(selectedNode.id, "title", e.target.value)}
+              />
+            </label>
+
+            <label className="panel-field">
+              <span className="panel-label">Description</span>
+              <textarea
+                className="panel-input panel-textarea"
+                rows={3}
+                value={selectedNode.description}
+                onChange={(e) => updateNodeField(selectedNode.id, "description", e.target.value)}
+              />
+            </label>
+
+            <label className="panel-field">
+              <span className="panel-label">Role</span>
+              <select
+                className="panel-input panel-select"
+                value={selectedNode.role}
+                onChange={(e) => updateNodeField(selectedNode.id, "role", e.target.value)}
+              >
+                {ROLE_OPTIONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="panel-field">
+              <span className="panel-label">Instructions</span>
+              <textarea
+                className="panel-input panel-textarea panel-textarea-tall"
+                rows={8}
+                value={selectedNode.instructions ?? ""}
+                placeholder="What should this node do? (system prompt, policy, etc.)"
+                onChange={(e) => updateNodeField(selectedNode.id, "instructions", e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="panel-footer">
+            <button
+              className="tool-btn panel-delete"
+              onClick={deleteSelected}
+              title="Delete this node and any connected edges"
+            >
+              delete node
+            </button>
+          </div>
+        </aside>
+      )}
+      </div>
+
       <style jsx>{`
         .studio-shell {
           position: fixed;
@@ -738,9 +840,16 @@ export default function StudioCanvas() {
           background: var(--border);
           margin: 0 6px;
         }
+        .studio-body {
+          flex: 1;
+          display: flex;
+          flex-direction: row;
+          min-height: 0;
+        }
         .studio-canvas {
           position: relative;
           flex: 1;
+          min-width: 0;
           overflow: hidden;
           background: var(--bg);
           touch-action: none;
@@ -846,6 +955,99 @@ export default function StudioCanvas() {
           background: rgba(255, 255, 255, 0.7);
           padding: 4px 10px;
           border-radius: 6px;
+        }
+        .studio-panel {
+          width: 340px;
+          flex-shrink: 0;
+          display: flex;
+          flex-direction: column;
+          background: var(--surface);
+          border-left: 1px solid var(--border);
+          overflow-y: auto;
+          z-index: 1;
+        }
+        .panel-header {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          padding: 14px 18px 10px;
+          border-bottom: 1px solid var(--border);
+        }
+        .panel-id {
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 11px;
+          color: var(--faint);
+        }
+        .panel-body {
+          padding: 14px 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          flex: 1;
+        }
+        .panel-field {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .panel-label {
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+        .panel-input {
+          width: 100%;
+          padding: 8px 10px;
+          font-family: inherit;
+          font-size: 13px;
+          color: var(--ink);
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          outline: none;
+          transition: border-color 100ms ease, box-shadow 100ms ease;
+        }
+        .panel-input:hover {
+          border-color: var(--border-strong);
+        }
+        .panel-input:focus {
+          border-color: var(--accent);
+          box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+        .panel-textarea {
+          resize: none;
+          line-height: 1.4;
+          min-height: 64px;
+        }
+        .panel-textarea-tall {
+          min-height: 140px;
+        }
+        .panel-select {
+          appearance: none;
+          background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+            linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+          background-position:
+            calc(100% - 16px) 50%,
+            calc(100% - 11px) 50%;
+          background-size: 5px 5px, 5px 5px;
+          background-repeat: no-repeat;
+          padding-right: 28px;
+          cursor: pointer;
+        }
+        .panel-footer {
+          padding: 12px 18px 18px;
+          border-top: 1px solid var(--border);
+        }
+        .panel-delete {
+          width: 100%;
+          color: var(--danger);
+          border-color: var(--border);
+        }
+        .panel-delete:hover:not(:disabled) {
+          border-color: var(--danger);
+          color: var(--danger);
+          background: var(--danger-soft);
         }
       `}</style>
     </div>
