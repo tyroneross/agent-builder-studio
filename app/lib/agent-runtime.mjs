@@ -35,13 +35,26 @@
 // message.content until done:true and then JSON.parse() the result.
 // TAG:ASSUMED — Ollama /api/chat NDJSON streaming protocol (documented stable).
 
-import { templateFor, HARD_RULES } from "./role-templates.mjs";
+import { getEffectiveRoleTemplate, HARD_RULES } from "./role-templates.mjs";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
 const DEFAULT_MODEL =
   (typeof process !== "undefined" && process.env && process.env.OLLAMA_MODEL) ||
   "gpt-oss:20b";
 const PER_LEVEL_PARALLELISM = 4;
+
+// Pass 7: test-only ring buffer of the last system prompts composed by
+// buildMessages(). The self-consistency test inspects this to assert that a
+// per-project role-prompt override actually reaches Ollama. Capped at 32
+// entries so a long-running dev server doesn't grow this unbounded.
+const SYSTEM_PROMPT_RING_CAP = 32;
+export const _lastSystemPrompts = [];
+function recordSystemPrompt(prompt) {
+  _lastSystemPrompts.push(prompt);
+  if (_lastSystemPrompts.length > SYSTEM_PROMPT_RING_CAP) {
+    _lastSystemPrompts.splice(0, _lastSystemPrompts.length - SYSTEM_PROMPT_RING_CAP);
+  }
+}
 
 // ── Topological planner ────────────────────────────────────────────────────
 
@@ -184,7 +197,10 @@ function upstreamOutputsBlock(node, incoming, results) {
 }
 
 function buildMessages(node, project, query, incoming, results) {
-  const sysParts = [HARD_RULES, "", templateFor(node.role)];
+  // Pass 7: prefer the per-project role-prompt override when present, else
+  // fall back to the hardcoded default for the role.
+  const roleTemplate = getEffectiveRoleTemplate(node.role, project?.rolePromptOverrides);
+  const sysParts = [HARD_RULES, "", roleTemplate];
   const userParts = [];
 
   const ctx = projectContextBlock(project);
@@ -205,8 +221,13 @@ function buildMessages(node, project, query, incoming, results) {
     "Respond with the strict JSON object required by your role template. No commentary outside the JSON.",
   );
 
+  const systemContent = sysParts.join("\n");
+  // Test-only hook: record the composed system prompt before it leaves the
+  // process. Inspected by scripts/test-self.mjs to assert override flow.
+  recordSystemPrompt(systemContent);
+
   return [
-    { role: "system", content: sysParts.join("\n") },
+    { role: "system", content: systemContent },
     { role: "user", content: userParts.join("\n\n") },
   ];
 }

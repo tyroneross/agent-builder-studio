@@ -17,6 +17,7 @@ import {
   withProjectUpdated,
   withCanvasUpdated,
 } from "../lib/projects";
+import { templateFor } from "../lib/role-templates.mjs";
 
 const ROLE_COLORS = {
   agent: { soft: "var(--accent-soft)", border: "var(--accent)" },
@@ -62,6 +63,14 @@ export default function StudioCanvas() {
   const hasHydratedRef = useRef(false);
   const persistTimerRef = useRef(null);
   const skipNextMirrorRef = useRef(false);
+  // Pass 7: per-role prompt-override debounce. Same pattern as canvas auto-save
+  // but lives at the project level rather than canvas level, so a separate
+  // timer prevents collision.
+  const overrideTimersRef = useRef({});
+  // Local draft of override edits by role, applied after debounce fires. This
+  // keeps the textarea responsive while we coalesce writes.
+  const [roleOverrideDrafts, setRoleOverrideDrafts] = useState({});
+  const [rolePromptExpanded, setRolePromptExpanded] = useState(false);
 
   const screenToCanvas = useCallback(
     (sx, sy) => {
@@ -501,6 +510,69 @@ export default function StudioCanvas() {
     });
   }
 
+  // Pass 7: edit a per-project role prompt override. Debounced 350ms so the
+  // textarea stays responsive. Empty/whitespace-only values are treated as
+  // "remove the override" (the runtime falls back to the default).
+  const setRoleOverrideDraft = useCallback((role, value) => {
+    setRoleOverrideDrafts((prev) => ({ ...prev, [role]: value }));
+    const timers = overrideTimersRef.current;
+    if (timers[role]) clearTimeout(timers[role]);
+    timers[role] = setTimeout(() => {
+      setStore((prev) => {
+        if (!prev) return prev;
+        const next = withProjectUpdated(prev, prev.activeProjectId, (p) => {
+          const overrides = { ...(p.rolePromptOverrides ?? {}) };
+          if (typeof value === "string" && value.trim().length > 0) {
+            overrides[role] = value;
+          } else {
+            delete overrides[role];
+          }
+          return { ...p, rolePromptOverrides: overrides };
+        });
+        writeStore(next);
+        return next;
+      });
+      delete overrideTimersRef.current[role];
+    }, PERSIST_DEBOUNCE_MS);
+  }, []);
+
+  // Reset to default: drop the override entirely so the runtime falls back to
+  // the hardcoded template. No confirm prompt — re-editing reinstates it.
+  const resetRoleOverride = useCallback((role) => {
+    const timers = overrideTimersRef.current;
+    if (timers[role]) {
+      clearTimeout(timers[role]);
+      delete timers[role];
+    }
+    setRoleOverrideDrafts((prev) => {
+      const next = { ...prev };
+      delete next[role];
+      return next;
+    });
+    setStore((prev) => {
+      if (!prev) return prev;
+      const next = withProjectUpdated(prev, prev.activeProjectId, (p) => {
+        const overrides = { ...(p.rolePromptOverrides ?? {}) };
+        delete overrides[role];
+        return { ...p, rolePromptOverrides: overrides };
+      });
+      writeStore(next);
+      return next;
+    });
+  }, []);
+
+  // When the user switches projects we drop drafts so the new project's
+  // overrides take effect immediately.
+  useEffect(() => {
+    setRoleOverrideDrafts({});
+    setRolePromptExpanded(false);
+    const timers = overrideTimersRef.current;
+    for (const k of Object.keys(timers)) {
+      clearTimeout(timers[k]);
+      delete timers[k];
+    }
+  }, [store?.activeProjectId]);
+
   function selectEdge(e, edge) {
     e.stopPropagation();
     setSelectedEdgeId(edge.id);
@@ -842,6 +914,16 @@ export default function StudioCanvas() {
                     onChange={(e) => updateNodeField(selectedNode.id, "instructions", e.target.value)}
                   />
                 </label>
+
+                <RolePromptSection
+                  role={selectedNode.role}
+                  overrides={activeProject.rolePromptOverrides ?? {}}
+                  draftValue={roleOverrideDrafts[selectedNode.role]}
+                  expanded={rolePromptExpanded}
+                  onToggle={() => setRolePromptExpanded((v) => !v)}
+                  onChange={(v) => setRoleOverrideDraft(selectedNode.role, v)}
+                  onReset={() => resetRoleOverride(selectedNode.role)}
+                />
               </>
             ) : (
               <p className="panel-empty">Select a node to edit its title, role, and instructions.</p>
@@ -1171,7 +1253,161 @@ export default function StudioCanvas() {
           color: var(--danger);
           background: var(--danger-soft);
         }
+        .role-prompt-section {
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          background: var(--surface);
+        }
+        .role-prompt-summary {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 10px 12px;
+          background: transparent;
+          border: 0;
+          width: 100%;
+          font: inherit;
+          font-size: 12px;
+          color: var(--ink);
+          cursor: pointer;
+          text-align: left;
+        }
+        .role-prompt-summary:hover {
+          background: var(--accent-soft);
+        }
+        .role-prompt-chevron {
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 11px;
+          color: var(--muted);
+        }
+        .role-prompt-overridden-badge {
+          display: inline-block;
+          font-size: 10px;
+          letter-spacing: 0.06em;
+          padding: 2px 6px;
+          border-radius: 4px;
+          background: var(--accent-soft);
+          color: var(--accent-strong);
+          margin-left: 6px;
+        }
+        .role-prompt-body {
+          padding: 4px 12px 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          border-top: 1px solid var(--border);
+        }
+        .role-prompt-help {
+          font-size: 11px;
+          color: var(--muted);
+          margin: 0;
+        }
+        .role-prompt-textarea {
+          width: 100%;
+          padding: 8px 10px;
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 12px;
+          line-height: 1.5;
+          color: var(--ink);
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          resize: vertical;
+          outline: none;
+          min-height: 160px;
+        }
+        .role-prompt-textarea:focus {
+          border-color: var(--accent);
+          box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+        .role-prompt-actions {
+          display: flex;
+          justify-content: flex-end;
+        }
+        .role-prompt-reset {
+          padding: 4px 10px;
+          font-size: 12px;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          background: var(--surface);
+          color: var(--muted);
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .role-prompt-reset:hover:not(:disabled) {
+          border-color: var(--accent);
+          color: var(--accent-strong);
+        }
+        .role-prompt-reset:disabled {
+          color: var(--faint);
+          cursor: not-allowed;
+        }
       `}</style>
+    </div>
+  );
+}
+
+// Pass 7: collapsible "Role prompt template" editor in the side panel.
+// Reads `overrides[role]` if present (via parent), else pre-fills with the
+// hardcoded default. Editing autosaves through `onChange` (parent debounces).
+// Reset removes the override so the runtime falls back to the default.
+function RolePromptSection({ role, overrides, draftValue, expanded, onToggle, onChange, onReset }) {
+  const persisted = overrides && typeof overrides[role] === "string" ? overrides[role] : null;
+  const hasOverride = persisted != null && persisted.trim().length > 0;
+  // Draft (in-memory while debounce pending) wins over persisted, persisted
+  // wins over default. Default is the hardcoded role template.
+  const defaultTemplate = templateFor(role);
+  const value = draftValue !== undefined ? draftValue : persisted != null ? persisted : defaultTemplate;
+  // The reset button stays enabled if the persisted store has an override OR
+  // if the user has typed a draft that differs from the default. Either way
+  // pressing reset returns the textarea to the default template.
+  const draftDiffersFromDefault = draftValue !== undefined && draftValue !== defaultTemplate;
+  const canReset = hasOverride || draftDiffersFromDefault;
+  return (
+    <div className="role-prompt-section" data-role-prompt-section data-role={role}>
+      <button
+        type="button"
+        className="role-prompt-summary"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        data-role-prompt-toggle
+      >
+        <span>
+          Role prompt template
+          {hasOverride && (
+            <span className="role-prompt-overridden-badge" data-role-prompt-overridden>
+              currently overridden
+            </span>
+          )}
+        </span>
+        <span className="role-prompt-chevron">{expanded ? "▾" : "▸"}</span>
+      </button>
+      {expanded && (
+        <div className="role-prompt-body">
+          <p className="role-prompt-help">{`Used by every ${role} node in this project.`}</p>
+          <textarea
+            className="role-prompt-textarea"
+            rows={10}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            data-role-prompt-textarea
+            spellCheck={false}
+          />
+          <div className="role-prompt-actions">
+            <button
+              type="button"
+              className="role-prompt-reset"
+              onClick={onReset}
+              disabled={!canReset}
+              data-role-prompt-reset
+              title={canReset ? "Remove override and revert to the default template" : "No override to reset"}
+            >
+              Reset to default
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

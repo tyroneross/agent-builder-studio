@@ -19,7 +19,7 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { runProject, planExecution } from "../app/lib/agent-runtime.mjs";
+import { runProject, planExecution, _lastSystemPrompts } from "../app/lib/agent-runtime.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,6 +50,93 @@ async function ollamaReachable() {
   }
 }
 
+// Pass 7: sentinel override sub-test. Uses a mocked global fetch so it runs
+// deterministically regardless of whether Ollama is reachable. Asserts that
+// the project's rolePromptOverrides.<role> string flows into the system
+// message that the runtime would send to Ollama.
+async function runSentinelOverrideSubTest(fixtureProject) {
+  const SENTINEL = "SENTINEL_OVERRIDE_PROMPT_v7";
+  const project = JSON.parse(JSON.stringify(fixtureProject));
+  project.rolePromptOverrides = { agent: SENTINEL };
+
+  // Mock fetch:
+  //   * /api/tags → { models: ["mock-model"] }
+  //   * /api/chat → NDJSON stream with one JSON object then done:true.
+  // The runtime's streamChat() collects the message.content and returns it.
+  // We only need a valid JSON-shaped payload so safeJsonParse succeeds.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.endsWith("/api/tags")) {
+      return new Response(JSON.stringify({ models: [{ name: "mock-model" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (u.endsWith("/api/chat")) {
+      const body = JSON.stringify({
+        message: { content: '{"result":"ok"}' },
+        done: true,
+      });
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(body + "\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "application/x-ndjson" },
+      });
+    }
+    return new Response("not mocked", { status: 500 });
+  };
+
+  // Snapshot the prompt buffer length BEFORE the run so we only check what
+  // this run produced (the regular run above also recorded prompts).
+  const baseLen = _lastSystemPrompts.length;
+
+  try {
+    await runProject({
+      project,
+      query: "sentinel test",
+      model: "mock-model",
+      baseUrl: "http://mock-ollama",
+      onEvent: () => {},
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const newPrompts = _lastSystemPrompts.slice(baseLen);
+  if (newPrompts.length === 0) {
+    fail("sentinel sub-test: runtime recorded no system prompts");
+  }
+  // The agent role(s) in the seed graph: at least "intake" is role: "agent".
+  // Find any prompt that contains the sentinel.
+  const matches = newPrompts.filter((p) => p.includes(SENTINEL));
+  if (matches.length === 0) {
+    fail(
+      `sentinel sub-test: SENTINEL not found in any of the ${newPrompts.length} system prompts. First prompt head: ${newPrompts[0].slice(0, 200)}`,
+    );
+  }
+  // Also assert that prompts for non-agent roles do NOT contain the sentinel.
+  const agentRoleNodes = new Set(
+    project.canvas.nodes.filter((n) => n.role === "agent").map((n) => n.id),
+  );
+  // The runtime composes prompts in node-order per level. We can't perfectly
+  // map prompt-index to node, but matches.length should equal the count of
+  // agent-role nodes. This catches accidental over-application.
+  if (matches.length !== agentRoleNodes.size) {
+    fail(
+      `sentinel sub-test: expected ${agentRoleNodes.size} prompts to contain SENTINEL (one per agent-role node), saw ${matches.length}`,
+    );
+  }
+  ok(
+    `sentinel sub-test: override propagated to ${matches.length}/${newPrompts.length} system prompts (one per agent-role node)`,
+  );
+}
+
 async function main() {
   const fixturePath = path.join(__dirname, "..", "test", "fixtures", "seed-project.json");
   const project = JSON.parse(await fs.readFile(fixturePath, "utf8"));
@@ -65,6 +152,8 @@ async function main() {
   if (!(await ollamaReachable())) {
     console.log(`SKIP: ollama not reachable at ${BASE_URL}/api/tags`);
     console.log(`SKIP: set OLLAMA_BASE_URL or start ollama to run the headless self-test`);
+    // Pass 7: sentinel sub-test runs regardless — it uses mocked fetch.
+    await runSentinelOverrideSubTest(project);
     process.exit(0);
   }
 
@@ -126,6 +215,11 @@ async function main() {
   if (!transcriptStat.size) fail("transcript.json is empty");
   if (!briefStat.size) fail("brief.md is empty");
   ok(`artifacts written to ${runDir}`);
+
+  // Pass 7: run the sentinel override sub-test under the same process. This
+  // uses mocked fetch so it doesn't depend on Ollama being available even
+  // though we just successfully ran against a real instance.
+  await runSentinelOverrideSubTest(project);
 
   console.log("");
   console.log("Summary:");

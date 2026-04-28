@@ -58,6 +58,21 @@ export function templateFor(role) {
   return ROLE_TEMPLATES[role] ?? ROLE_TEMPLATES.agent;
 }
 
+// Pass 7: per-project role-prompt overrides.
+// `overrides[role]` (when a non-empty string) fully replaces the hardcoded
+// default. Anything else falls back to `templateFor(role)`. Used by both the
+// runtime (when composing the system prompt) and the side-panel UI (when
+// pre-filling the editor textarea).
+export function getEffectiveRoleTemplate(role, overrides) {
+  if (overrides && typeof overrides === "object") {
+    const candidate = overrides[role];
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate;
+    }
+  }
+  return templateFor(role);
+}
+
 // HARD_RULES are prepended to every per-node prompt. These are runtime-wide
 // invariants, not role-specific. Kept short so they sit in the system slot
 // without crowding out the role template.

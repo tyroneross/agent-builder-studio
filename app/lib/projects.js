@@ -1,9 +1,9 @@
 // Project storage layer. Owns the on-disk shape, migrations, and the helpers
 // the canvas + landing page use to read/write projects. Pure module — no React.
 //
-// Storage shape (v3):
+// Storage shape (v4):
 //   {
-//     version: 3,
+//     version: 4,
 //     activeProjectId: string,
 //     projects: [
 //       {
@@ -17,20 +17,26 @@
 //         uploads: [                     // Pass 5 — files saved into <workingFolder>/uploads/
 //           { name, size, savedPath, uploadedAt }
 //         ],
+//         rolePromptOverrides: {         // Pass 7 — per-role prompt-template overrides
+//           [role]: string               // e.g. { agent: "Custom prompt..." }
+//         },
 //         canvas: { nodes, edges, pan, zoom }
 //       },
 //       ...
 //     ]
 //   }
 //
-// Migration chain: v1 -> v3 (single hop), v2 -> v3 (additive defaults). Both
-// happen lazily on first load and persist v3 immediately. Old keys are left
-// in place so a user can recover if a migration produced something unexpected.
+// Migration chain: v1 -> v4 (structural), v2 -> v4 (additive), v3 -> v4
+// (additive: rolePromptOverrides defaults to {} per project). All lazy on
+// first load and persisted to v4 immediately. Old keys are left in place so
+// a user can recover if a migration produced something unexpected.
 
 export const STORAGE_KEY_V1 = "agent-studio:v1";
 export const STORAGE_KEY_V2 = "agent-studio:v2";
 export const STORAGE_KEY_V3 = "agent-studio:v3";
+export const STORAGE_KEY_V4 = "agent-studio:v4";
 export const STORAGE_VERSION_V3 = 3;
+export const STORAGE_VERSION_V4 = 4;
 
 // Seed graph reused by both new-project flow and v1 hydration default.
 export const SEED_NODES = [
@@ -121,6 +127,7 @@ export function makeProject({
   context = "",
   outcome = "",
   uploads = [],
+  rolePromptOverrides = {},
   canvas,
 } = {}) {
   return {
@@ -132,8 +139,23 @@ export function makeProject({
     context,
     outcome,
     uploads,
+    rolePromptOverrides: { ...rolePromptOverrides },
     canvas: canvas || seedCanvas(),
   };
+}
+
+// Pass 7: validate per-role override map. We only keep entries whose value is
+// a non-empty string after trim. This is what the runtime treats as "an
+// override exists" — empty strings collapse back to the default.
+function normalizeRolePromptOverrides(overrides) {
+  if (!overrides || typeof overrides !== "object") return {};
+  const out = {};
+  for (const [role, value] of Object.entries(overrides)) {
+    if (typeof value !== "string") continue;
+    if (value.trim().length === 0) continue;
+    out[role] = value;
+  }
+  return out;
 }
 
 // Defensive normalization for a single node read from storage. Older saves
@@ -183,37 +205,61 @@ function normalizeProject(p) {
     context: typeof p.context === "string" ? p.context : "",
     outcome: typeof p.outcome === "string" ? p.outcome : "",
     uploads: Array.isArray(p.uploads) ? p.uploads.map(normalizeUpload).filter(Boolean) : [],
+    rolePromptOverrides: normalizeRolePromptOverrides(p.rolePromptOverrides),
     canvas: normalizeCanvas(p.canvas),
   };
 }
 
-// Try v3, then v2 (with additive migration), then v1 (with structural migration),
-// else null (caller seeds a default).
+// Try v4, then v3 (additive: add rolePromptOverrides), then v2 (chain v2->v3->v4),
+// then v1 (single hop to v4), else null (caller seeds a default).
 export function loadStore() {
   if (typeof window === "undefined") return null;
 
-  // Prefer v3 if present.
+  // Prefer v4 if present.
+  try {
+    const rawV4 = window.localStorage.getItem(STORAGE_KEY_V4);
+    if (rawV4) {
+      const parsed = JSON.parse(rawV4);
+      if (parsed && parsed.version === STORAGE_VERSION_V4 && Array.isArray(parsed.projects)) {
+        return hydrateStore(parsed);
+      }
+      // Malformed v4 — fall through.
+    }
+  } catch (err) {
+    console.warn("[agent-studio] failed to read v4 store:", err);
+  }
+
+  // v3 -> v4: copy forward, default rolePromptOverrides to {} per project.
   try {
     const rawV3 = window.localStorage.getItem(STORAGE_KEY_V3);
     if (rawV3) {
-      const parsed = JSON.parse(rawV3);
-      if (parsed && parsed.version === STORAGE_VERSION_V3 && Array.isArray(parsed.projects)) {
-        return hydrateStore(parsed);
+      const v3 = JSON.parse(rawV3);
+      if (v3 && v3.version === STORAGE_VERSION_V3 && Array.isArray(v3.projects)) {
+        const upgraded = {
+          version: STORAGE_VERSION_V4,
+          activeProjectId: v3.activeProjectId,
+          projects: v3.projects.map((p) => ({
+            ...p,
+            rolePromptOverrides: {},
+          })),
+        };
+        const hydrated = hydrateStore(upgraded);
+        writeStore(hydrated);
+        return hydrated;
       }
-      // Malformed v3 — fall through.
     }
   } catch (err) {
-    console.warn("[agent-studio] failed to read v3 store:", err);
+    console.warn("[agent-studio] failed to migrate v3 store:", err);
   }
 
-  // v2 -> v3: read once, default new fields, persist v3.
+  // v2 -> v4: chain — additive defaults from v2->v3, then v3->v4 override map.
   try {
     const rawV2 = window.localStorage.getItem(STORAGE_KEY_V2);
     if (rawV2) {
       const v2 = JSON.parse(rawV2);
       if (v2 && v2.version === 2 && Array.isArray(v2.projects)) {
         const upgraded = {
-          version: STORAGE_VERSION_V3,
+          version: STORAGE_VERSION_V4,
           activeProjectId: v2.activeProjectId,
           projects: v2.projects.map((p) => ({
             ...p,
@@ -221,6 +267,7 @@ export function loadStore() {
             context: typeof p.context === "string" ? p.context : "",
             outcome: typeof p.outcome === "string" ? p.outcome : "",
             uploads: Array.isArray(p.uploads) ? p.uploads : [],
+            rolePromptOverrides: {},
           })),
         };
         const hydrated = hydrateStore(upgraded);
@@ -232,7 +279,7 @@ export function loadStore() {
     console.warn("[agent-studio] failed to migrate v2 store:", err);
   }
 
-  // v1 -> v3: structural migration (single project from raw nodes/edges).
+  // v1 -> v4: structural migration (single project from raw nodes/edges).
   try {
     const rawV1 = window.localStorage.getItem(STORAGE_KEY_V1);
     if (rawV1) {
@@ -246,7 +293,7 @@ export function loadStore() {
         });
         const project = makeProject({ name: "Default", workingFolder: "", canvas });
         const store = {
-          version: STORAGE_VERSION_V3,
+          version: STORAGE_VERSION_V4,
           activeProjectId: project.id,
           projects: [project],
         };
@@ -261,7 +308,7 @@ export function loadStore() {
   return null;
 }
 
-// Validate + repair a parsed v3 store. Guarantees at least one project and a
+// Validate + repair a parsed v4 store. Guarantees at least one project and a
 // valid activeProjectId pointing at one of them.
 function hydrateStore(parsed) {
   const projects = parsed.projects
@@ -270,7 +317,7 @@ function hydrateStore(parsed) {
 
   if (projects.length === 0) {
     return {
-      version: STORAGE_VERSION_V3,
+      version: STORAGE_VERSION_V4,
       activeProjectId: null,
       projects: [],
     };
@@ -281,7 +328,7 @@ function hydrateStore(parsed) {
     : projects[0].id;
 
   return {
-    version: STORAGE_VERSION_V3,
+    version: STORAGE_VERSION_V4,
     activeProjectId: activeId,
     projects,
   };
@@ -291,22 +338,22 @@ export function writeStore(store) {
   if (typeof window === "undefined") return;
   try {
     const payload = {
-      version: STORAGE_VERSION_V3,
+      version: STORAGE_VERSION_V4,
       activeProjectId: store.activeProjectId,
       projects: store.projects,
     };
-    window.localStorage.setItem(STORAGE_KEY_V3, JSON.stringify(payload));
+    window.localStorage.setItem(STORAGE_KEY_V4, JSON.stringify(payload));
   } catch (err) {
-    console.warn("[agent-studio] failed to persist v3 store:", err);
+    console.warn("[agent-studio] failed to persist v4 store:", err);
   }
 }
 
 export function clearStore() {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.removeItem(STORAGE_KEY_V3);
+    window.localStorage.removeItem(STORAGE_KEY_V4);
   } catch (err) {
-    console.warn("[agent-studio] failed to clear v3 store:", err);
+    console.warn("[agent-studio] failed to clear v4 store:", err);
   }
 }
 
@@ -315,7 +362,7 @@ export function clearStore() {
 // but guards by redirecting in that case.
 export function emptyStore() {
   return {
-    version: STORAGE_VERSION_V3,
+    version: STORAGE_VERSION_V4,
     activeProjectId: null,
     projects: [],
   };
