@@ -2,26 +2,29 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PERMITTED_PATH_PREFIXES, looksAbsolutePath } from "../lib/projects";
+import FolderPickerModal from "./FolderPickerModal";
 
-// Working folder input for the active project.
+// Working folder input for the active project. Pass 10.
 //
-// Three input modes, all converging on the same setter:
+// Two input modes:
 //   1. Type / paste an absolute path. Validation hits /api/fs/validate after
 //      a short debounce. Inline status: green check (exists+dir+writable),
 //      amber dot (exists but not writable, or not a directory), red X
 //      (rejected / missing), or no-badge (empty).
-//   2. Browse — <input type="file" webkitdirectory />. We use the picker's
-//      metadata only to surface the folder name as a hint; the picker does
-//      not expose the absolute filesystem path in standard browsers, so we
-//      never pretend it set the path.
-//   3. Drag and drop a directory onto the drop zone. Same browser limitation
-//      as Browse: we can only read names, never absolute paths.
+//   2. Browse — opens FolderPickerModal, a server-driven directory picker
+//      backed by /api/fs/list. The modal returns an absolute path on commit.
+//
+// Pass 10 removed the previous webkitdirectory <input> (macOS labels that
+// "Upload" — confusing) and the drag-drop folder zone (browsers don't expose
+// absolute paths via drag-drop in standard mode, so the zone could only ever
+// surface a name and apologize). Drag-drop for actual file uploads stays in
+// UploadZone, which is a different surface.
 export default function WorkingFolderInput({ value, onChange }) {
   const [draft, setDraft] = useState(value ?? "");
   const [status, setStatus] = useState({ kind: "idle" }); // idle | checking | ok | warn | error
   const [hint, setHint] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const debounceRef = useRef(null);
-  const dropRef = useRef(null);
 
   // Keep draft in sync with the active project's stored value (e.g. on project switch).
   useEffect(() => {
@@ -93,48 +96,25 @@ export default function WorkingFolderInput({ value, onChange }) {
     onChange(next);
   }
 
-  function onBrowsePicked(e) {
-    // The picker hands us a FileList of files inside the chosen folder. Most
-    // browsers expose only the relative path (folderName/sub/file). We can read
-    // the top folder name but not its absolute location.
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const first = files[0];
-    const rel = first.webkitRelativePath || "";
-    const folderName = rel.split("/")[0] || "";
-    if (folderName) {
-      // No absolute path is possible here, so we surface the hint and *do not*
-      // overwrite the user's typed path. We just nudge them.
-      setHint(`Browser only revealed folder name "${folderName}". Paste the absolute path manually.`);
-    }
-    // Reset the input so the same folder can be picked again.
-    e.target.value = "";
-  }
-
-  function onDragOver(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (dropRef.current) dropRef.current.classList.add("is-drop-hover");
-  }
-  function onDragLeave(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (dropRef.current) dropRef.current.classList.remove("is-drop-hover");
-  }
-  async function onDrop(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (dropRef.current) dropRef.current.classList.remove("is-drop-hover");
-    const items = e.dataTransfer?.items;
-    if (items && items.length > 0) {
-      // We can read the dropped item's name, but standard browsers do NOT
-      // expose its absolute filesystem path. Match the Browse behavior.
-      const first = items[0];
-      const entry = typeof first.webkitGetAsEntry === "function" ? first.webkitGetAsEntry() : null;
-      const name = entry?.name || first.getAsFile?.()?.name || "";
-      if (name) {
-        setHint(`Browser only revealed name "${name}". Paste the absolute path manually.`);
-      }
+  // Picker committed a path. Set the input AND attempt mkdir if missing — that
+  // way clicking "Use this folder" on a not-yet-created project subdirectory
+  // works the same as typing one and waiting for create-on-validate to fire.
+  // We don't await; the typing effect above will still validate the new draft
+  // a few hundred ms later either way.
+  async function onPickerSelect(absPath) {
+    setPickerOpen(false);
+    commit(absPath);
+    // Best-effort: ensure the directory exists if it was a typed-path that the
+    // picker accepted on Enter. The list route only returns existing dirs, so
+    // in practice this branch is mostly inert — but it's safe and cheap.
+    try {
+      await fetch("/api/fs/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: absPath, create: true }),
+      });
+    } catch {
+      /* swallow — the typing-debounced validator will report the real status */
     }
   }
 
@@ -161,36 +141,32 @@ export default function WorkingFolderInput({ value, onChange }) {
           data-working-folder-input
         />
         {badge}
-      </div>
-      <div className="wf-actions">
-        <label className="tool-btn wf-browse" data-working-folder-browse>
-          browse
-          <input
-            type="file"
-            webkitdirectory=""
-            directory=""
-            multiple
-            style={{ display: "none" }}
-            onChange={onBrowsePicked}
-            data-working-folder-browse-input
-          />
-        </label>
-        <div
-          className="wf-drop"
-          ref={dropRef}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-          data-working-folder-drop
+        <button
+          type="button"
+          className="tool-btn wf-browse"
+          onClick={() => setPickerOpen(true)}
+          data-working-folder-browse
         >
-          drag a folder here
-        </div>
+          Browse
+        </button>
       </div>
-      <p className="wf-hint">
-        {hint
-          ? hint
-          : "Browser security only reveals the folder name. To set a working path, paste the absolute path manually (Mac Finder: Cmd-Option-C, then paste)."}
-      </p>
+      {hint && (
+        <p
+          className={`wf-hint wf-hint-${status.kind}`}
+          data-working-folder-hint
+          data-working-folder-status={status.kind}
+        >
+          {hint}
+        </p>
+      )}
+
+      <FolderPickerModal
+        open={pickerOpen}
+        initialPath={draft || ""}
+        onSelect={onPickerSelect}
+        onClose={() => setPickerOpen(false)}
+      />
+
       <style jsx>{`
         .wf {
           display: flex;
@@ -247,11 +223,6 @@ export default function WorkingFolderInput({ value, onChange }) {
         .wf-warn { background: var(--policy-soft); color: var(--policy); }
         .wf-error { background: var(--danger-soft); color: var(--danger); }
         .wf-check { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
-        .wf-actions {
-          display: flex;
-          gap: 8px;
-          align-items: stretch;
-        }
         .wf-browse {
           display: inline-flex;
           align-items: center;
@@ -271,28 +242,15 @@ export default function WorkingFolderInput({ value, onChange }) {
           border-color: var(--accent);
           color: var(--accent-strong);
         }
-        .wf-drop {
-          flex: 1;
-          border: 1px dashed var(--border-strong);
-          border-radius: 8px;
-          padding: 8px 10px;
-          text-align: center;
-          font-size: 12px;
-          color: var(--muted);
-          cursor: copy;
-          transition: border-color 100ms ease, background 100ms ease;
-        }
-        .wf-drop.is-drop-hover {
-          border-color: var(--accent);
-          background: var(--accent-soft);
-          color: var(--accent-strong);
-        }
         .wf-hint {
           font-size: 11px;
-          color: var(--faint);
           margin: 0;
           line-height: 1.4;
+          color: var(--muted);
         }
+        .wf-hint-ok { color: var(--accent-strong); }
+        .wf-hint-warn { color: var(--policy); }
+        .wf-hint-error { color: var(--danger); }
       `}</style>
     </div>
   );

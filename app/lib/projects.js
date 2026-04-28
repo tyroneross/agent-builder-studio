@@ -345,6 +345,33 @@ export function looksAbsolutePath(value) {
   return typeof value === "string" && value.startsWith("/");
 }
 
+// Pass 10: kebab-case slug for project-name → directory-segment. Lowercase
+// alphanumerics with hyphens between groups. Empty input yields "project" so
+// the default working folder always has a valid trailing segment.
+export function slugifyProjectName(name) {
+  if (typeof name !== "string") return "project";
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "project";
+}
+
+// Pass 10: default working folder for a freshly-opened new-project form.
+// We pre-fill ${HOME}/agent-studio/<slug>/ — under /Users/, so the validator
+// allowlist accepts it, and unique-per-project so two new projects don't
+// collide on the same folder. The directory may not exist yet; the user can
+// click "Browse" or save and the existing /api/fs/validate { create: true }
+// flow will mkdir on submit.
+//
+// `home` is injected so the component can pass `process.env.HOME` (server)
+// or a hardcoded `/Users/<user>/` (client, where process.env is empty).
+export function defaultWorkingFolder({ name, home }) {
+  if (!home || typeof home !== "string") return "";
+  const base = home.endsWith("/") ? home.slice(0, -1) : home;
+  return `${base}/agent-studio/${slugifyProjectName(name)}/`;
+}
+
 // Pass 8: demo-project flow. The landing page surfaces a "Try the demo
 // project" CTA which creates this canonical project (or opens it if it
 // already exists) and routes to /canvas.

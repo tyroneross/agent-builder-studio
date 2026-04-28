@@ -1,9 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import WorkingFolderInput from "./WorkingFolderInput";
 import UploadZone from "./UploadZone";
-import { PERMITTED_PATH_PREFIXES, looksAbsolutePath } from "../lib/projects";
+import {
+  PERMITTED_PATH_PREFIXES,
+  looksAbsolutePath,
+  defaultWorkingFolder,
+  slugifyProjectName,
+} from "../lib/projects";
 import { canvasFromPattern } from "../lib/agent-patterns";
 
 // Inline new-project form. Submits a fully-formed project payload via onCreate.
@@ -31,6 +36,7 @@ export default function NewProjectForm({ onCreate, onCancel, seedPattern }) {
   const [outcome, setOutcome] = useState("");
   const [uploads, setUploads] = useState([]);
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const folderTouchedRef = useRef(false);
 
   // Pass 9: when a seedPattern is supplied (e.g. user picked a pattern in the
   // onboarding wizard or the landing pattern picker), pre-fill the project
@@ -40,6 +46,49 @@ export default function NewProjectForm({ onCreate, onCancel, seedPattern }) {
     if (!seedPattern) return;
     setName((current) => (current && current.trim().length > 0 ? current : seedPattern.name));
   }, [seedPattern]);
+
+  // Pass 10: pre-fill the working folder with ${HOME}/agent-studio/<slug>/
+  // as soon as we know the user's home directory. We only set it if the user
+  // hasn't already typed something; once they touch the field, name changes
+  // don't re-roll the default.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/fs/home");
+        const data = await res.json();
+        if (cancelled || !data?.home) return;
+        if (folderTouchedRef.current) return;
+        const candidate = defaultWorkingFolder({
+          name: name || seedPattern?.name || "project",
+          home: data.home,
+        });
+        setWorkingFolder(candidate);
+        // We trigger validation manually here because we set the state directly.
+        kickValidate(candidate);
+      } catch {
+        /* leave folder empty if we can't reach /api/fs/home */
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-roll default folder when the project name changes — but only if the
+  // user hasn't manually edited the folder. Once they touch it, leave it.
+  useEffect(() => {
+    if (folderTouchedRef.current) return;
+    if (!workingFolder) return;
+    // Re-derive the slug position; only adjust the trailing segment.
+    const m = workingFolder.match(/^(.*\/agent-studio\/)([^/]*)\/?$/);
+    if (!m) return;
+    const next = `${m[1]}${slugifyProjectName(name || seedPattern?.name || "project")}/`;
+    if (next !== workingFolder) {
+      setWorkingFolder(next);
+      kickValidate(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, seedPattern]);
 
   // Whether the working folder *might* be valid. We surface this for the
   // submit gate even before the server round-trips, so the user gets fast
@@ -70,13 +119,19 @@ export default function NewProjectForm({ onCreate, onCancel, seedPattern }) {
   })();
 
   function handleWorkingFolderChange(value) {
+    folderTouchedRef.current = true;
     setWorkingFolder(value);
+    kickValidate(value);
+  }
+
+  // Internal: run the same validate-and-set pattern used by both manual edits
+  // and the default-folder pre-fill. Kept separate so the pre-fill effect
+  // doesn't have to flip folderTouchedRef.
+  function kickValidate(value) {
     setFolderValidated(false);
     if (!value) return;
     if (!looksAbsolutePath(value)) return;
     if (!PERMITTED_PATH_PREFIXES.some((prefix) => value.startsWith(prefix))) return;
-    // Fire-and-forget validate; debounce by capturing the current value at
-    // resolve time and discarding stale responses.
     const captured = value;
     setTimeout(async () => {
       try {
@@ -86,7 +141,6 @@ export default function NewProjectForm({ onCreate, onCancel, seedPattern }) {
           body: JSON.stringify({ path: captured }),
         });
         const data = await res.json();
-        if (captured !== workingFolder && captured !== value) return; // stale
         if (data && data.ok && data.exists && data.isDirectory && data.writable) {
           setFolderValidated(true);
         } else {
@@ -135,6 +189,9 @@ export default function NewProjectForm({ onCreate, onCancel, seedPattern }) {
       data-new-project-form
       data-new-project-seed-pattern={seedPattern?.id || ""}
     >
+      <p className="np-intro" data-new-project-intro>
+        Set up a project. You can change anything later.
+      </p>
       {seedPattern && (
         <div className="np-pattern-banner" data-new-project-pattern-banner>
           <span className="np-pattern-label">Pattern</span>
@@ -200,17 +257,21 @@ export default function NewProjectForm({ onCreate, onCancel, seedPattern }) {
             data-new-project-outcome
           />
         </label>
-
-        <div className="np-field">
-          <UploadZone
-            workingFolder={folderValidated ? workingFolder : ""}
-            uploads={uploads}
-            onUploaded={handleUploaded}
-            onRemoved={handleUploadRemoved}
-            disabled={!folderValidated}
-          />
-        </div>
       </div>
+
+      <section className="np-uploads" data-new-project-uploads>
+        <h3 className="np-uploads-title">Context files (optional)</h3>
+        <p className="np-uploads-help">
+          Saved into <code>{workingFolder ? `${workingFolder.replace(/\/$/, "")}/uploads/` : "<workingFolder>/uploads/"}</code>.
+        </p>
+        <UploadZone
+          workingFolder={folderValidated ? workingFolder : ""}
+          uploads={uploads}
+          onUploaded={handleUploaded}
+          onRemoved={handleUploadRemoved}
+          disabled={!folderValidated}
+        />
+      </section>
 
       <div className="np-actions">
         <button
@@ -234,6 +295,37 @@ export default function NewProjectForm({ onCreate, onCancel, seedPattern }) {
           display: flex;
           flex-direction: column;
           gap: 18px;
+        }
+        .np-intro {
+          font-size: 13px;
+          color: var(--muted);
+          margin: 0;
+          line-height: 1.5;
+        }
+        .np-uploads {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 14px;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          background: var(--surface);
+        }
+        .np-uploads-title {
+          margin: 0;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--ink);
+        }
+        .np-uploads-help {
+          margin: 0;
+          font-size: 11px;
+          color: var(--muted);
+          line-height: 1.4;
+        }
+        .np-uploads-help code {
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 11px;
         }
         .np-grid {
           display: flex;

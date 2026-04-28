@@ -359,11 +359,6 @@ export default function Landing() {
           <section className="land-card" data-landing-form>
             <div className="land-card-header">
               <span className="land-eyebrow">New project</span>
-              <p className="land-card-sub">
-                Pick a working folder under <code>/Users</code>, <code>/tmp</code>, or
-                <code> /var/folders</code>. Files dropped below upload immediately into
-                <code> &lt;workingFolder&gt;/uploads/</code>.
-              </p>
             </div>
             <NewProjectForm
               onCreate={handleCreate}
