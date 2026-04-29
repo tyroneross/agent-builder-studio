@@ -30,8 +30,14 @@ import {
   withStatusChanged,
   withNodeMockSet,
   withNodeMockCleared,
+  withInferredEdgesCached,
+  withEdgesAccepted,
   isProjectLocked,
 } from "../lib/projects";
+import {
+  graphHashFor,
+  shouldInferEdges,
+} from "../lib/edge-inference.mjs";
 import { templateFor } from "../lib/role-templates.mjs";
 import {
   exportProjectToMarkdown,
@@ -116,6 +122,13 @@ export default function StudioCanvas() {
   const [lastTranscript, setLastTranscript] = useState(null);
   const [inspectorNodeId, setInspectorNodeId] = useState(null);
   const [mockEditorNodeId, setMockEditorNodeId] = useState(null);
+
+  // Pass 16 — inferred-edge state. The ghost-edge overlay is rendered when
+  // `inferredEdges` is non-null. `inferring` flips while the API call is in
+  // flight; `inferenceError` surfaces a non-fatal failure as a banner.
+  const [inferredEdges, setInferredEdges] = useState(null);
+  const [inferring, setInferring] = useState(false);
+  const [inferenceError, setInferenceError] = useState("");
 
   const containerRef = useRef(null);
   const dragState = useRef(null);
@@ -760,6 +773,88 @@ export default function StudioCanvas() {
     openSoloRun(nodeId);
   }, [openSoloRun]);
 
+  // Pass 16 — request inferred edges from the model for the live graph.
+  // Only valid when shouldInferEdges() returns true (zero edges, no
+  // declarations). Caches into runCache via withInferredEdgesCached on
+  // success so a re-run on the same graph reads from cache.
+  async function inferEdges() {
+    if (!liveProject) return;
+    if (!shouldInferEdges(liveProject)) {
+      if (typeof window !== "undefined") {
+        window.alert("This graph already has edges or input/output declarations. Inference is only for sparse graphs.");
+      }
+      return;
+    }
+    setInferring(true);
+    setInferenceError("");
+    try {
+      const res = await fetch("/api/agent/infer-edges", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ project: liveProject }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        setInferenceError(json?.error || `inference failed (${res.status})`);
+        // Keep ghost overlay empty so the canvas stays in original
+        // parallel-mode behavior on failure.
+        setInferredEdges([]);
+        return;
+      }
+      const edges = Array.isArray(json.edges) ? json.edges : [];
+      setInferredEdges(edges);
+      // Cache into the project so a future click on a unchanged graph
+      // skips the call. Skip caching on cache-hit (the entry already
+      // exists in runCache).
+      if (!json.cacheHit) {
+        const hash = graphHashFor(liveProject);
+        setStore((prev) => {
+          if (!prev) return prev;
+          const next = withProjectUpdated(prev, prev.activeProjectId, (p) =>
+            withInferredEdgesCached(p, hash, edges),
+          );
+          writeStore(next);
+          return next;
+        });
+      }
+    } catch (err) {
+      setInferenceError(err?.message || "inference request failed");
+      setInferredEdges([]);
+    } finally {
+      setInferring(false);
+    }
+  }
+
+  function acceptInferredEdges() {
+    if (!inferredEdges || inferredEdges.length === 0) {
+      setInferredEdges(null);
+      return;
+    }
+    setStore((prev) => {
+      if (!prev) return prev;
+      const next = withProjectUpdated(prev, prev.activeProjectId, (p) =>
+        withEdgesAccepted(p, inferredEdges),
+      );
+      writeStore(next);
+      return next;
+    });
+    // Mirror into in-memory edges so the canvas reflects immediately.
+    setEdges((current) => {
+      const seen = new Set(current.map((e) => `${e.from}->${e.to}`));
+      const additions = inferredEdges
+        .filter((e) => e && typeof e.from === "string" && typeof e.to === "string")
+        .filter((e) => !seen.has(`${e.from}->${e.to}`))
+        .map((e) => ({ id: `${e.from}->${e.to}`, from: e.from, to: e.to }));
+      return [...current, ...additions];
+    });
+    setInferredEdges(null);
+  }
+
+  function declineInferredEdges() {
+    setInferredEdges(null);
+    setInferenceError("");
+  }
+
   // Pass 14.5 → 14.6 — Save snapshot with storage preflight.
   // We flush the live canvas state into the project first (the debounced
   // auto-save may not have fired yet) so the snapshot captures what the user
@@ -1228,6 +1323,31 @@ export default function StudioCanvas() {
       .filter(Boolean);
   }, [nodes, edges]);
 
+  // Pass 16 — ghost paths for inferred-but-not-accepted edges. Same Bezier
+  // shape as real edges so the visual mirrors the canonical layout; dashed
+  // stroke distinguishes it from accepted edges.
+  const inferredEdgePaths = useMemo(() => {
+    if (!inferredEdges || inferredEdges.length === 0) return [];
+    const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+    return inferredEdges
+      .map((edge) => {
+        const a = byId[edge.from];
+        const b = byId[edge.to];
+        if (!a || !b) return null;
+        const x1 = a.x + a.w;
+        const y1 = a.y + a.h / 2;
+        const x2 = b.x;
+        const y2 = b.y + b.h / 2;
+        const mx = (x1 + x2) / 2;
+        return {
+          id: `inferred-${edge.from}->${edge.to}`,
+          d: `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`,
+          reason: edge.reason || "",
+        };
+      })
+      .filter(Boolean);
+  }, [nodes, inferredEdges]);
+
   const selectedNode = useMemo(
     () => (selectedId ? nodes.find((n) => n.id === selectedId) ?? null : null),
     [nodes, selectedId],
@@ -1326,6 +1446,20 @@ export default function StudioCanvas() {
           >
             clear cache
           </button>
+          {/* Pass 16 — Infer order. Visible only when the graph is sparse
+              (no edges, no inputs/outputs declarations). One click → one
+              Ollama call → ghost-edge banner. */}
+          {liveProject && shouldInferEdges(liveProject) && (
+            <button
+              className="tool-btn"
+              onClick={inferEdges}
+              disabled={locked || inferring}
+              title="Ask the model to suggest data-flow edges for this graph"
+              data-canvas-infer-edges
+            >
+              {inferring ? "inferring…" : "infer order"}
+            </button>
+          )}
           <span className="tool-sep" />
           {/* Pass 14.5 — snapshot + completion + markdown actions. */}
           <button
@@ -1427,6 +1561,47 @@ export default function StudioCanvas() {
           This project is marked completed. Click &quot;Reopen&quot; to edit.
         </div>
       )}
+      {/* Pass 16 — inferred-edge banner. Empty inferredEdges (with no
+          error) means the model returned no plausible ordering — surface
+          that as well so the user isn't waiting for a result that isn't
+          coming. */}
+      {inferredEdges && (
+        <div className="studio-inferred-banner" role="status" data-canvas-inferred-banner>
+          <span>
+            {inferredEdges.length === 0
+              ? "Inferred no plausible ordering for this graph."
+              : `Inferred ${inferredEdges.length} edge${inferredEdges.length === 1 ? "" : "s"}. Click to accept or decline.`}
+          </span>
+          <span className="banner-actions">
+            {inferredEdges.length > 0 && (
+              <button
+                type="button"
+                className="tool-btn"
+                onClick={acceptInferredEdges}
+                data-canvas-accept-inferred
+              >
+                Accept
+              </button>
+            )}
+            <button
+              type="button"
+              className="tool-btn"
+              onClick={declineInferredEdges}
+              data-canvas-decline-inferred
+            >
+              {inferredEdges.length === 0 ? "Dismiss" : "Decline"}
+            </button>
+          </span>
+        </div>
+      )}
+      {inferenceError && (
+        <div className="studio-inferred-banner studio-inferred-error" role="alert" data-canvas-inferred-error>
+          <span>Inference failed: {inferenceError}. Running in parallel.</span>
+          <button type="button" className="tool-btn" onClick={() => setInferenceError("")}>
+            Dismiss
+          </button>
+        </div>
+      )}
       <div className="studio-body">
       <div
         ref={containerRef}
@@ -1512,6 +1687,23 @@ export default function StudioCanvas() {
                 style={{ pointerEvents: "none" }}
               />
             )}
+            {/* Pass 16 — inferred ghost edges. Dashed, distinct hue from
+                connect-drag ghost so the user can tell them apart. */}
+            {inferredEdgePaths.map((p) => (
+              <path
+                key={p.id}
+                d={p.d}
+                stroke="var(--policy, #8b6c2a)"
+                strokeWidth="2"
+                strokeDasharray="4 4"
+                fill="none"
+                opacity="0.75"
+                style={{ pointerEvents: "none" }}
+                data-inferred-edge
+              >
+                <title>{p.reason}</title>
+              </path>
+            ))}
           </svg>
 
           {nodes.map((n) => {
@@ -1896,6 +2088,24 @@ export default function StudioCanvas() {
           font-size: 13px;
           text-align: center;
           font-weight: 500;
+        }
+        .studio-inferred-banner {
+          padding: 8px 18px;
+          background: var(--policy-soft, #fdf3da);
+          border-bottom: 1px solid var(--border);
+          color: var(--ink);
+          font-size: 13px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+        }
+        .studio-inferred-error {
+          background: var(--danger-soft, #fdebe7);
+        }
+        .banner-actions {
+          display: flex;
+          gap: 6px;
         }
         .studio-toast {
           position: fixed;

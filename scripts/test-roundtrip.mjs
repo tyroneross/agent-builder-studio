@@ -33,6 +33,12 @@ import {
   exportProjectToMarkdown,
   importMarkdownToProject,
 } from "../app/lib/markdown-export.mjs";
+import {
+  graphHashFor,
+  shouldInferEdges,
+  sanitizeInferredEdges,
+} from "../app/lib/edge-inference.mjs";
+import { withEdgesAccepted, withInferredEdgesCached } from "../app/lib/projects.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -368,6 +374,85 @@ async function main() {
   if ((reparsed.snapshots ?? []).length !== 0) fail(`reparsed.snapshots should be empty`);
   if (reparsed.status !== "draft") fail(`reparsed.status should default to "draft"`);
   ok(`reparsed project resets studio-only fields (runCache empty, snapshots empty, status=draft)`);
+
+  // ── 6. Inferred-edges round-trip (Pass 16) ────────────────────────────
+  //
+  // Assertions:
+  //   - A sparse graph (no edges, no decls) gets `shouldInferEdges → true`.
+  //   - Inferred edges accepted via withEdgesAccepted promote to portable
+  //     canvas.edges and survive export → import.
+  //   - The studio-only inferred-edges cache (in runCache.__inferredEdges)
+  //     does NOT appear in spec or agent.md.
+  //   - Decline path leaves edges untouched (already covered by acceptance:
+  //     ghost edges live in component state, not in project storage).
+
+  const sparseProject = JSON.parse(JSON.stringify(original));
+  // Force "sparse" — strip edges + clear inputs/outputs declarations.
+  sparseProject.canvas.edges = [];
+  for (const n of sparseProject.canvas.nodes) {
+    n.inputs = [];
+    n.outputs = [];
+  }
+  if (!shouldInferEdges(sparseProject)) {
+    fail("inferred-edges: shouldInferEdges should be true after stripping edges/decls");
+  }
+  ok(`inferred-edges: shouldInferEdges true for sparse seed graph`);
+
+  // Simulate an Ollama response that proposes a chain a → b → c through
+  // the seed nodes (intake → policy → orch). sanitizeInferredEdges drops
+  // anything that doesn't reference a real node.
+  const fakeRaw = {
+    edges: [
+      { from: "intake", to: "policy", reason: "policy depends on intake outputs" },
+      { from: "policy", to: "orch", reason: "orch consumes policy" },
+      { from: "ghost-not-a-real-node", to: "intake", reason: "should be dropped" },
+      { from: "intake", to: "intake", reason: "self-loop, should be dropped" },
+    ],
+  };
+  const sanitized = sanitizeInferredEdges(fakeRaw, sparseProject);
+  if (sanitized.length !== 2) {
+    fail(`inferred-edges: sanitize should keep 2 edges, kept ${sanitized.length}`);
+  }
+  ok(`inferred-edges: sanitize drops self-loops + unknown ids`);
+
+  // Cache the inferred edges as the user clicking "Run" would have done.
+  const hash = graphHashFor(sparseProject);
+  let projWithCache = withInferredEdgesCached(sparseProject, hash, sanitized);
+  if (!projWithCache.runCache?.__inferredEdges) {
+    fail("inferred-edges: cache write missing");
+  }
+
+  // Accept → edges promote to canvas.
+  let projAccepted = withEdgesAccepted(projWithCache, sanitized);
+  if (projAccepted.canvas.edges.length !== 2) {
+    fail(`inferred-edges: accept should promote 2 edges, got ${projAccepted.canvas.edges.length}`);
+  }
+  ok(`inferred-edges: accept promotes inferred edges to portable canvas.edges`);
+
+  // Export + re-import. The cache (studio-only) must NOT appear; the
+  // accepted edges (portable) must round-trip.
+  const acceptedExport = exportProjectToSpec(projAccepted);
+  for (const f of acceptedExport.files) {
+    if (f.content.includes("__inferredEdges")) {
+      fail(`inferred-edges: cache leaked into spec file ${f.path}`);
+    }
+  }
+  ok(`inferred-edges: cache (studio-only) excluded from spec`);
+
+  const acceptedReimported = importSpecToProject(acceptedExport.files);
+  const expectedPairs = new Set(["intake->policy", "policy->orch"]);
+  const gotPairs = new Set(acceptedReimported.canvas.edges.map((e) => `${e.from}->${e.to}`));
+  for (const want of expectedPairs) {
+    if (!gotPairs.has(want)) fail(`inferred-edges: round-trip lost edge ${want}`);
+  }
+  ok(`inferred-edges: accepted edges round-trip preserved`);
+
+  // agent.md side: the cache must NOT appear in the markdown.
+  const acceptedMd = exportProjectToMarkdown(projAccepted, { exportedAt: "2026-04-28T12:00:00Z" });
+  if (acceptedMd.includes("__inferredEdges")) {
+    fail("inferred-edges: cache leaked into agent.md");
+  }
+  ok(`inferred-edges: cache (studio-only) excluded from agent.md`);
 
   console.log("");
   console.log("Summary:");

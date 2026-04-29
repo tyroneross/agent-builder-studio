@@ -603,6 +603,51 @@ export function withRunCacheCleared(project) {
   return { ...project, runCache: {} };
 }
 
+// Pass 16 — write an inferred-edges cache entry into the project's
+// runCache under the reserved key. The entry shape matches the regular
+// runCache shape: { input: <graphHash>, output: <edges array>, ts }.
+// runCache is studio-only so this never reaches the spec.
+export function withInferredEdgesCached(project, graphHash, edges) {
+  if (!project || typeof project !== "object") return project;
+  return {
+    ...project,
+    runCache: {
+      ...(project.runCache ?? {}),
+      __inferredEdges: {
+        input: graphHash,
+        output: Array.isArray(edges) ? edges : [],
+        ts: new Date().toISOString(),
+      },
+    },
+  };
+}
+
+// Pass 16 — promote inferred edges to canvas.edges (portable). Dedupes
+// against existing edges so an "Accept" on an already-present edge is a
+// no-op. Returns a new project with canvas.edges patched.
+export function withEdgesAccepted(project, inferredEdges) {
+  if (!project || typeof project !== "object") return project;
+  const existing = Array.isArray(project.canvas?.edges) ? project.canvas.edges : [];
+  const seen = new Set(existing.map((e) => `${e.from}->${e.to}`));
+  const additions = [];
+  for (const e of inferredEdges || []) {
+    if (!e || typeof e !== "object") continue;
+    if (typeof e.from !== "string" || typeof e.to !== "string") continue;
+    const key = `${e.from}->${e.to}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    additions.push({ id: key, from: e.from, to: e.to });
+  }
+  if (additions.length === 0) return project;
+  return {
+    ...project,
+    canvas: {
+      ...project.canvas,
+      edges: [...existing, ...additions],
+    },
+  };
+}
+
 // Pass 15 — set / clear a node's `mockOutput`. mockOutput is studio-only;
 // the runtime substitutes it before any LLM call. Setting `null` is a
 // clear. Both helpers return a new project with the canvas patched.
