@@ -99,6 +99,13 @@ export default function StudioCanvas() {
 
   const [expandedId, setExpandedId] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
+  // Pass 13 — multi-selection set populated by lasso (shift-drag empty canvas)
+  // and shift-click. The single `selectedId` stays the side-panel anchor; a
+  // node renders as selected when `selectedId === n.id || multiSelected.has(n.id)`.
+  const [multiSelected, setMultiSelected] = useState(() => new Set());
+  // Live lasso rectangle in canvas coords; rendered inside the transformed
+  // stage so it scales with zoom. Set during drag, cleared on release.
+  const [lassoRect, setLassoRect] = useState(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState(null);
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [connect, setConnect] = useState(null);
@@ -169,6 +176,25 @@ export default function StudioCanvas() {
     if (target.closest("[data-port]")) return;
     if (target.closest("[data-edge-hit]")) return;
     if (target.closest("[data-node]")) return;
+
+    // Pass 13 — Shift held on empty canvas starts a lasso (rubber-band) instead
+    // of a pan. Existing selection is preserved during the drag and replaced on
+    // release with the nodes hit by the rect.
+    if (e.shiftKey) {
+      const startCanvas = screenToCanvas(e.clientX, e.clientY);
+      dragState.current = {
+        type: "lasso",
+        startX: e.clientX,
+        startY: e.clientY,
+        startCanvas,
+        currentCanvas: startCanvas,
+        moved: false,
+      };
+      setLassoRect({ start: startCanvas, end: startCanvas });
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
     dragState.current = {
       type: "pan",
       startX: e.clientX,
@@ -178,6 +204,7 @@ export default function StudioCanvas() {
     };
     setSelectedId(null);
     setSelectedEdgeId(null);
+    setMultiSelected(new Set());
     e.currentTarget.setPointerCapture(e.pointerId);
   }
 
@@ -217,6 +244,46 @@ export default function StudioCanvas() {
       setSelectedId(node.id);
       return;
     }
+
+    // Pass 13 — Shift-click toggles a node in the multi-selection set without
+    // starting any drag. The clicked node always becomes the side-panel anchor.
+    if (e.shiftKey) {
+      setMultiSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(node.id)) next.delete(node.id);
+        else next.add(node.id);
+        return next;
+      });
+      setSelectedId(node.id);
+      return;
+    }
+
+    // Pass 13 — group drag: if the clicked node is part of a multi-selection,
+    // every selected node moves together by the same delta.
+    const groupIds = multiSelected.has(node.id) && multiSelected.size > 1
+      ? new Set(multiSelected)
+      : null;
+    if (groupIds) {
+      const startPositions = {};
+      for (const id of groupIds) {
+        const n = nodes.find((nn) => nn.id === id);
+        if (n) startPositions[id] = { x: n.x, y: n.y };
+      }
+      dragState.current = {
+        type: "group-node",
+        ids: groupIds,
+        startX: e.clientX,
+        startY: e.clientY,
+        startPositions,
+        moved: false,
+      };
+      setSelectedId(node.id);
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    // Plain single-node drag (existing behavior). Clears the multi-selection
+    // since the user clicked a node not in the current group.
     dragState.current = {
       type: "node",
       nodeId: node.id,
@@ -226,6 +293,7 @@ export default function StudioCanvas() {
       moved: false,
     };
     setSelectedId(node.id);
+    if (multiSelected.size > 0) setMultiSelected(new Set());
     e.currentTarget.setPointerCapture(e.pointerId);
   }
 
@@ -241,6 +309,22 @@ export default function StudioCanvas() {
       const nx = ds.startNode.x + dx / zoom;
       const ny = ds.startNode.y + dy / zoom;
       setNodes((arr) => arr.map((n) => (n.id === ds.nodeId ? { ...n, x: nx, y: ny } : n)));
+    } else if (ds.type === "group-node") {
+      // Pass 13 — translate every selected node by the same canvas-space delta.
+      const ddx = dx / zoom;
+      const ddy = dy / zoom;
+      setNodes((arr) =>
+        arr.map((n) => {
+          const start = ds.startPositions[n.id];
+          if (!start) return n;
+          return { ...n, x: start.x + ddx, y: start.y + ddy };
+        }),
+      );
+    } else if (ds.type === "lasso") {
+      // Pass 13 — extend the rubber-band rect to the current pointer position.
+      const currentCanvas = screenToCanvas(e.clientX, e.clientY);
+      ds.currentCanvas = currentCanvas;
+      setLassoRect({ start: ds.startCanvas, end: currentCanvas });
     } else if (ds.type === "connect") {
       const canvasPt = screenToCanvas(e.clientX, e.clientY);
       setConnect((c) => (c ? { ...c, ghost: canvasPt } : c));
@@ -251,10 +335,36 @@ export default function StudioCanvas() {
     const ds = dragState.current;
     if (!ds) {
       if (connect) setConnect(null);
+      if (lassoRect) setLassoRect(null);
       return;
     }
     if (ds.type === "node" && !ds.moved) {
       setExpandedId((id) => (id === ds.nodeId ? null : ds.nodeId));
+    } else if (ds.type === "lasso") {
+      // Pass 13 — resolve the rect to a set of hits (node centers inside the
+      // rect) and replace multi-selection. The first hit becomes the
+      // side-panel anchor.
+      const a = ds.startCanvas;
+      const b = ds.currentCanvas ?? ds.startCanvas;
+      const x1 = Math.min(a.x, b.x);
+      const x2 = Math.max(a.x, b.x);
+      const y1 = Math.min(a.y, b.y);
+      const y2 = Math.max(a.y, b.y);
+      const hits = new Set();
+      for (const n of nodes) {
+        const cx = n.x + n.w / 2;
+        const cy = n.y + n.h / 2;
+        if (cx >= x1 && cx <= x2 && cy >= y1 && cy <= y2) hits.add(n.id);
+      }
+      setMultiSelected(hits);
+      if (hits.size > 0) {
+        setSelectedId(hits.values().next().value);
+      } else if (!ds.moved) {
+        // Shift-click on empty canvas with no movement — clear selection.
+        setSelectedId(null);
+        setSelectedEdgeId(null);
+      }
+      setLassoRect(null);
     } else if (ds.type === "connect") {
       const targetEl = document.elementFromPoint(e.clientX, e.clientY);
       const portEl = targetEl?.closest?.("[data-port]");
@@ -383,6 +493,7 @@ export default function StudioCanvas() {
         }
         setSelectedId(null);
         setSelectedEdgeId(null);
+        setMultiSelected(new Set());
         return;
       }
       if (e.key !== "Delete" && e.key !== "Backspace") return;
@@ -394,17 +505,32 @@ export default function StudioCanvas() {
         e.preventDefault();
         setEdges((arr) => arr.filter((edge) => edge.id !== selectedEdgeId));
         setSelectedEdgeId(null);
+      } else if (multiSelected.size > 1) {
+        // Pass 13 — group delete with confirm.
+        e.preventDefault();
+        const ids = new Set(multiSelected);
+        if (selectedId) ids.add(selectedId);
+        if (window.confirm(`Delete ${ids.size} nodes and their edges?`)) {
+          setNodes((arr) => arr.filter((n) => !ids.has(n.id)));
+          setEdges((arr) =>
+            arr.filter((edge) => !ids.has(edge.from) && !ids.has(edge.to)),
+          );
+          setSelectedId(null);
+          setMultiSelected(new Set());
+          setExpandedId(null);
+        }
       } else if (selectedId) {
         e.preventDefault();
         setNodes((arr) => arr.filter((n) => n.id !== selectedId));
         setEdges((arr) => arr.filter((edge) => edge.from !== selectedId && edge.to !== selectedId));
         setSelectedId(null);
+        setMultiSelected(new Set());
         setExpandedId(null);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedEdgeId, selectedId, connect]);
+  }, [selectedEdgeId, selectedId, multiSelected, connect]);
 
   // Hydrate from localStorage on mount. If no projects exist, redirect home so
   // the user can create one.
@@ -1843,10 +1969,24 @@ export default function StudioCanvas() {
             ))}
           </svg>
 
+          {lassoRect && (
+            <div
+              className="studio-lasso"
+              style={{
+                left: Math.min(lassoRect.start.x, lassoRect.end.x),
+                top: Math.min(lassoRect.start.y, lassoRect.end.y),
+                width: Math.abs(lassoRect.end.x - lassoRect.start.x),
+                height: Math.abs(lassoRect.end.y - lassoRect.start.y),
+              }}
+            />
+          )}
+
           {nodes.map((n) => {
             const c = ROLE_COLORS[n.role] ?? ROLE_COLORS.agent;
             const isExpanded = expandedId === n.id;
-            const isSelected = selectedId === n.id;
+            // Pass 13 — a node is visually selected when it's the side-panel
+            // anchor OR when it's part of the multi-selection set.
+            const isSelected = selectedId === n.id || multiSelected.has(n.id);
             const isHovered = hoveredNodeId === n.id;
             const showPorts = isHovered || isSelected || (connect && connect.fromId !== n.id);
             return (
@@ -2319,6 +2459,14 @@ export default function StudioCanvas() {
           top: 0;
           pointer-events: none;
           overflow: visible;
+        }
+        .studio-lasso {
+          position: absolute;
+          border: 1px solid var(--accent);
+          background: var(--accent-soft);
+          opacity: 0.35;
+          pointer-events: none;
+          border-radius: 2px;
         }
         .studio-node {
           position: absolute;
