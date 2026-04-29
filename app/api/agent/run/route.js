@@ -202,6 +202,15 @@ export async function POST(request) {
   // /api/agent/run/control with `{runId, action}` to advance / skip-to-end /
   // cancel between levels.
   const step = body?.step === true;
+  // Pass 18 — map of { [projectId]: project } the client supplies for
+  // subagent resolution. The route stays store-agnostic; the client
+  // resolves which projects to ship by walking the parent's subagent
+  // references. Missing entries surface as a clean node-error
+  // ("subagent project '...' not found in store") at runtime.
+  const subagentProjects =
+    body?.subagentProjects && typeof body.subagentProjects === "object"
+      ? body.subagentProjects
+      : {};
 
   if (!project || !project.canvas || !Array.isArray(project.canvas.nodes)) {
     return Response.json(
@@ -277,6 +286,10 @@ export async function POST(request) {
           baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
           signal: ac.signal,
           stepGate: stepController ? stepController.gate : undefined,
+          // Pass 18 — resolve subagent references against the client-
+          // supplied map. `null` for unknown ids; the runtime turns that
+          // into a clean node-error.
+          resolveSubagentProject: (id) => subagentProjects[id] || null,
           onEvent: (evt) => {
             // Attach runDir to the final `complete` event so the UI can show
             // the path. We swallow it on every other event to keep frames lean.

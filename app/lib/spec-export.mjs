@@ -187,18 +187,32 @@ function projectToSpec(project) {
   const nodesRaw = project?.canvas?.nodes ?? [];
   const edgesRaw = project?.canvas?.edges ?? [];
 
-  const nodes = nodesRaw.map((n) => ({
-    id: n.id,
-    title: n.title,
-    kind: n.role,
-    description: n.description ?? "",
-    instructions: typeof n.instructions === "string" ? n.instructions : "",
-    tools: [],
-    inputs: Array.isArray(n.inputs) ? n.inputs.slice() : [],
-    outputs: Array.isArray(n.outputs) ? n.outputs.slice() : [],
-    permission: "ask-first",
-    model: "inherit",
-  }));
+  const nodes = nodesRaw.map((n) => {
+    const out = {
+      id: n.id,
+      title: n.title,
+      kind: n.role,
+      description: n.description ?? "",
+      instructions: typeof n.instructions === "string" ? n.instructions : "",
+      tools: [],
+      inputs: Array.isArray(n.inputs) ? n.inputs.slice() : [],
+      outputs: Array.isArray(n.outputs) ? n.outputs.slice() : [],
+      permission: "ask-first",
+      model: "inherit",
+    };
+    // Pass 18 — subagent reference is portable. The decision (Q5) was
+    // same-store id today; `inlineSpec` is reserved for a future pass that
+    // ships the inner project's spec directory alongside the parent's.
+    // We never inline the project body to keep the parent spec compact;
+    // consumers re-resolve via the studio's project store.
+    if (n.role === "subagent") {
+      out.subagent = {
+        ref: typeof n.subagentProjectId === "string" ? n.subagentProjectId : null,
+        inlineSpec: null,
+      };
+    }
+    return out;
+  });
 
   const edges = edgesRaw.map((e) => ({ from: e.from, to: e.to }));
   const { inputs, outputs } = projectInputsOutputs(nodesRaw);
@@ -271,6 +285,8 @@ function buildAgentYaml(spec) {
         tools: n.tools,
         inputs: n.inputs,
         outputs: n.outputs,
+        // Pass 18 — surface the subagent reference in agent.yaml too.
+        ...(n.subagent ? { subagent: n.subagent } : {}),
       })),
       edges: spec.edges,
     },
@@ -321,6 +337,11 @@ function buildManifestJson(spec, createdAt) {
           tools: n.tools,
           inputs: n.inputs,
           outputs: n.outputs,
+          // Pass 18 — round-trip the subagent reference when present.
+          // agent-builder ignores unknown manifest fields (validateSpec
+          // checks projectName + nodes + edges only), so this stays
+          // compatible with v0.3.0.
+          ...(n.subagent ? { subagent: n.subagent } : {}),
         })),
         edges: spec.edges,
       },
@@ -636,7 +657,7 @@ export function importSpecToProject(files, options = {}) {
 
   const nodes = graphNodes.map((n) => {
     const xy = placement(n.id);
-    return {
+    const out = {
       id: n.id,
       role: n.kind ?? "agent",
       title: n.title ?? n.id,
@@ -650,7 +671,17 @@ export function importSpecToProject(files, options = {}) {
       outputs: Array.isArray(n.outputs) ? n.outputs.slice() : [],
       fixture: fixtureByNode.has(n.id) ? fixtureByNode.get(n.id) : null,
       mockOutput: null,
+      subagentProjectId: null,
     };
+    // Pass 18 — restore the subagent reference. We accept either
+    // `subagent.ref` (the new portable form) or a top-level
+    // `subagentProjectId` so a hand-edited spec works either way.
+    if (n.subagent && typeof n.subagent === "object" && typeof n.subagent.ref === "string") {
+      out.subagentProjectId = n.subagent.ref;
+    } else if (typeof n.subagentProjectId === "string") {
+      out.subagentProjectId = n.subagentProjectId;
+    }
+    return out;
   });
 
   const edges = graphEdges.map((e) => ({

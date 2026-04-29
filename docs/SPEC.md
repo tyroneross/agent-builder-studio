@@ -46,6 +46,7 @@ Files that Agent Studio doesn't yet populate ship as **empty stubs** with the co
 | `outputs[]` | portable | `agent.yaml#graph.nodes[].outputs`, `manifest.json#graph.nodes[].outputs`, `agent.yaml#outputs` (project-level union) | Declared output tags drive the runtime's data flow. |
 | `fixture: { inputs, source }` (Pass 14) | portable (inputs) + studio-only (source) | `evals/golden-tasks.json` (inputs only, paired with the most recent `runCache` output if present) | The user-saved test inputs for this node. `source: "manual" \| "upstream-cache"` is editor metadata only and is dropped on export. |
 | `mockOutput` (Pass 14, populated by Pass 15) | studio-only | (excluded; stripped on export) | Substitutes Ollama's response when set. Useful for testing downstream cheaply. Never exported because the spec must always represent a real runtime. |
+| `subagentProjectId` (Pass 18) | portable | `agent.yaml#graph.nodes[].subagent.ref`, `manifest.json#graph.nodes[].subagent.ref` | Set when `role === "subagent"`. Spec form: `subagent: { ref: <projectId>, inlineSpec: null }`. Same-store ref by default (Q5 resolved); `inlineSpec` reserved for a future pass. |
 
 **Edges** (`canvas.edges`) are portable in full (`{from, to}`). They land in `agent.yaml#graph.edges` and `manifest.json#graph.edges`.
 

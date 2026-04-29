@@ -187,6 +187,13 @@ function normalizeNode(n) {
   if (!Object.prototype.hasOwnProperty.call(out, "mockOutput")) {
     out.mockOutput = null;
   }
+  // Pass 18 — subagent reference. Only meaningful when role === "subagent".
+  // String project id, or null. Portable in the spec as
+  // `subagent: { ref, inlineSpec? }`. We accept either name on read so a
+  // hand-edited project file can use either form.
+  if (typeof out.subagentProjectId !== "string") {
+    out.subagentProjectId = null;
+  }
   return out;
 }
 

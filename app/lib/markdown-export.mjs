@@ -361,7 +361,7 @@ function readFencedAfter(body, headerRegex, lang) {
 // dropped; only fixture.inputs (replayable) survives, and lives in its own
 // "## Fixtures" section, not on the node.
 function nodeForExport(n) {
-  return {
+  const out = {
     id: n.id,
     role: n.role,
     title: n.title,
@@ -369,6 +369,13 @@ function nodeForExport(n) {
     inputs: Array.isArray(n.inputs) ? n.inputs.slice() : [],
     outputs: Array.isArray(n.outputs) ? n.outputs.slice() : [],
   };
+  // Pass 18 — preserve subagent reference for round-trip. The id is
+  // portable because it identifies a same-store project; the inner
+  // project's own agent.md / spec is a separate export.
+  if (n.role === "subagent" && typeof n.subagentProjectId === "string") {
+    out.subagentProjectId = n.subagentProjectId;
+  }
+  return out;
 }
 
 export function exportProjectToMarkdown(project, options = {}) {
@@ -502,8 +509,12 @@ function importYamlBlockUnder(body, headerRegex, lang) {
 function layoutNodes(nodes, edges) {
   const incoming = new Map();
   for (const n of nodes) incoming.set(n.id, new Set());
-  for (const e of edges) {
-    if (incoming.has(e.to)) incoming.get(e.to).add(e.from);
+  // Defensive: an empty `[]` in a YAML block can come back as `null` or a
+  // non-iterable from the tiny parser. Treat anything non-iterable as no
+  // edges so a graph with zero edges still imports cleanly.
+  const safeEdges = Array.isArray(edges) ? edges : [];
+  for (const e of safeEdges) {
+    if (e && incoming.has(e.to)) incoming.get(e.to).add(e.from);
   }
   const depth = new Map();
   function depthOf(id, seen = new Set()) {
@@ -549,8 +560,10 @@ export function importMarkdownToProject(md, options = {}) {
   const outcome = readSection(body, /^##\s+Outcome\s*\n/m);
 
   const overrides = importYamlBlockUnder(body, /^##\s+Role prompt overrides\s*\n/m, "yaml") || {};
-  const nodesRaw = importYamlBlockUnder(body, /^###\s+Nodes\s*\n/m, "yaml") || [];
-  const edgesRaw = importYamlBlockUnder(body, /^###\s+Edges\s*\n/m, "yaml") || [];
+  const nodesRawMaybe = importYamlBlockUnder(body, /^###\s+Nodes\s*\n/m, "yaml");
+  const edgesRawMaybe = importYamlBlockUnder(body, /^###\s+Edges\s*\n/m, "yaml");
+  const nodesRaw = Array.isArray(nodesRawMaybe) ? nodesRawMaybe : [];
+  const edgesRaw = Array.isArray(edgesRawMaybe) ? edgesRawMaybe : [];
 
   // Per-node instructions: parse out each `### <title> (\`id\`)` block.
   const instructionsSection = readSection(body, /^##\s+Per-node instructions\s*\n/m);
@@ -593,6 +606,8 @@ export function importMarkdownToProject(md, options = {}) {
     description: n.description || "",
     inputs: Array.isArray(n.inputs) ? n.inputs : [],
     outputs: Array.isArray(n.outputs) ? n.outputs : [],
+    // Pass 18 — preserve subagent ref on import.
+    subagentProjectId: typeof n.subagentProjectId === "string" ? n.subagentProjectId : null,
   }));
   const positions = layoutNodes(layoutNodesRaw, edgesRaw);
   const nodes = layoutNodesRaw.map((n, i) => ({

@@ -454,6 +454,165 @@ async function main() {
   }
   ok(`inferred-edges: cache (studio-only) excluded from agent.md`);
 
+  // ── Pass 18 — parent + subagent round-trip ───────────────────────────
+  //
+  // Asserts:
+  //   - A subagent node's `subagentProjectId` survives spec export +
+  //     re-import via the new `subagent: { ref, inlineSpec }` portable.
+  //   - The agent.md round-trip preserves the same field.
+  //   - Behavioral run with subagent against mocked Ollama: the subagent
+  //     node's transcript embeds the inner project's run transcript.
+  //   - Cycle detection: a project that points at itself surfaces a
+  //     clean node-error before any LLM call.
+
+  // Build a tiny child project + a parent that references it.
+  const childProject = {
+    id: "p-child-pass18",
+    name: "Child research agent",
+    workingFolder: "",
+    createdAt: "2026-04-28T00:00:00Z",
+    goal: "Summarize a topic in two bullets",
+    context: "",
+    outcome: "",
+    uploads: [],
+    rolePromptOverrides: {},
+    runCache: {},
+    status: "draft",
+    snapshots: [],
+    canvas: {
+      nodes: [
+        {
+          id: "child-summarizer",
+          role: "agent",
+          title: "Summarizer",
+          description: "Two-bullet summary",
+          instructions: "Return JSON {summary: [string, string]}",
+          x: 100,
+          y: 100,
+          w: 220,
+          h: 130,
+          inputs: [],
+          outputs: [],
+          fixture: null,
+          mockOutput: null,
+          subagentProjectId: null,
+        },
+      ],
+      edges: [],
+      pan: { x: 0, y: 0 },
+      zoom: 1,
+    },
+  };
+  const parentProject = {
+    id: "p-parent-pass18",
+    name: "Parent orchestrator",
+    workingFolder: "",
+    createdAt: "2026-04-28T00:00:00Z",
+    goal: "Compose a brief from sub-agent output",
+    context: "",
+    outcome: "",
+    uploads: [],
+    rolePromptOverrides: {},
+    runCache: {},
+    status: "draft",
+    snapshots: [],
+    canvas: {
+      nodes: [
+        {
+          id: "parent-sub",
+          role: "subagent",
+          title: "Research sub-agent",
+          description: "Calls the child research project",
+          instructions: "",
+          x: 100,
+          y: 100,
+          w: 220,
+          h: 130,
+          inputs: [],
+          outputs: [],
+          fixture: null,
+          mockOutput: null,
+          subagentProjectId: childProject.id,
+        },
+      ],
+      edges: [],
+      pan: { x: 0, y: 0 },
+      zoom: 1,
+    },
+  };
+
+  // Spec round-trip — subagent ref survives.
+  const parentExport = exportProjectToSpec(parentProject);
+  const parentReimported = importSpecToProject(parentExport.files);
+  const reimportedSub = parentReimported.canvas.nodes.find((n) => n.role === "subagent");
+  if (!reimportedSub) fail(`subagent: spec round-trip dropped the subagent node`);
+  if (reimportedSub.subagentProjectId !== childProject.id) {
+    fail(`subagent: spec round-trip dropped subagentProjectId (got "${reimportedSub.subagentProjectId}")`);
+  }
+  ok(`subagent: spec round-trip preserves subagentProjectId via subagent.ref`);
+
+  // agent.md round-trip — same field survives.
+  const parentMd = exportProjectToMarkdown(parentProject, { exportedAt: "2026-04-28T12:00:00Z" });
+  if (!parentMd.includes(childProject.id)) {
+    fail(`subagent: agent.md should include the subagent's project id`);
+  }
+  const parentMdReimport = importMarkdownToProject(parentMd);
+  const mdSub = parentMdReimport.canvas.nodes.find((n) => n.role === "subagent");
+  if (!mdSub || mdSub.subagentProjectId !== childProject.id) {
+    fail(`subagent: agent.md round-trip dropped subagentProjectId`);
+  }
+  ok(`subagent: agent.md round-trip preserves subagentProjectId`);
+
+  // Behavioral run — install mock fetch and run the parent with a
+  // resolveSubagentProject callback.
+  const restoreFetchSub = installMockFetch();
+  let subRun;
+  try {
+    process.env.OLLAMA_SEED = SEED;
+    subRun = await runProject({
+      project: parentProject,
+      query: "subagent test",
+      model: MODEL,
+      baseUrl: BASE_URL,
+      onEvent: () => {},
+      resolveSubagentProject: (id) => (id === childProject.id ? childProject : null),
+    });
+  } finally {
+    restoreFetchSub();
+  }
+  const parentNode = subRun.transcript.nodes.find((n) => n.id === "parent-sub");
+  if (!parentNode) fail(`subagent: parent run-transcript missing the subagent node`);
+  if (!parentNode.subagent || parentNode.subagent.ref !== childProject.id) {
+    fail(`subagent: parent transcript missing subagent.ref`);
+  }
+  if (!parentNode.subagent.transcript || !Array.isArray(parentNode.subagent.transcript.nodes)) {
+    fail(`subagent: parent transcript missing nested child transcript`);
+  }
+  ok(`subagent: behavioral run inlines child transcript on the subagent node`);
+
+  // Cycle detection — make a project that points at itself.
+  const cyclic = JSON.parse(JSON.stringify(parentProject));
+  cyclic.canvas.nodes[0].subagentProjectId = cyclic.id; // self-reference
+  const restoreFetchCycle = installMockFetch();
+  let cyclicRun;
+  try {
+    cyclicRun = await runProject({
+      project: cyclic,
+      query: "cycle test",
+      model: MODEL,
+      baseUrl: BASE_URL,
+      onEvent: () => {},
+      resolveSubagentProject: (id) => (id === cyclic.id ? cyclic : null),
+    });
+  } finally {
+    restoreFetchCycle();
+  }
+  const cyclicNode = cyclicRun.transcript.nodes.find((n) => n.id === "parent-sub");
+  if (!cyclicNode || !cyclicNode.error || !cyclicNode.error.includes("cycle")) {
+    fail(`subagent: self-reference should produce a cycle error (got "${cyclicNode?.error}")`);
+  }
+  ok(`subagent: self-reference detected and rejected with a cycle error`);
+
   // ── 7. Pass 17 — disk round-trip + agent-builder validation ──────────
   //
   // Simulates the UI flow:

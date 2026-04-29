@@ -63,9 +63,13 @@ const ROLE_COLORS = {
   executor: { soft: "var(--tool-soft)", border: "var(--tool)" },
   eval: { soft: "var(--eval-soft)", border: "var(--eval)" },
   memory: { soft: "var(--memory-soft)", border: "var(--memory)" },
+  // Pass 18 — subagent role inherits the orchestrator hue so the canvas
+  // reads it as a flow controller; the double-border + label distinguish
+  // it visually from a regular orchestrator node.
+  subagent: { soft: "var(--accent-soft)", border: "var(--accent)" },
 };
 
-const ROLE_OPTIONS = ["agent", "guardrail", "orchestrator", "executor", "eval", "memory"];
+const ROLE_OPTIONS = ["agent", "guardrail", "orchestrator", "executor", "eval", "memory", "subagent"];
 
 function edgeId(from, to) {
   return `${from}->${to}`;
@@ -1907,6 +1911,7 @@ export default function StudioCanvas() {
           onToggle={() => setTestPanelOpen((o) => !o)}
           locked={locked}
           onTranscriptComplete={handleTranscriptComplete}
+          allProjects={store?.projects ?? []}
         />
       </div>
 
@@ -1978,6 +1983,34 @@ export default function StudioCanvas() {
                     ))}
                   </select>
                 </label>
+
+                {/* Pass 18 — when role===subagent, surface a project picker.
+                    The list excludes the current project to prevent the
+                    obvious self-loop; the runtime catches indirect cycles
+                    with a clear error event. */}
+                {selectedNode.role === "subagent" && (
+                  <label className="panel-field">
+                    <span className="panel-label">Sub-agent project</span>
+                    <select
+                      className="panel-input panel-select"
+                      value={selectedNode.subagentProjectId || ""}
+                      disabled={locked}
+                      onChange={(e) =>
+                        updateNodeField(selectedNode.id, "subagentProjectId", e.target.value || null)
+                      }
+                      data-panel-subagent-picker
+                    >
+                      <option value="">— pick a project —</option>
+                      {(store?.projects ?? [])
+                        .filter((p) => p.id !== activeProject.id)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name || p.id}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
 
                 <label className="panel-field">
                   <span className="panel-label">Instructions</span>

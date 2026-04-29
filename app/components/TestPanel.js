@@ -34,7 +34,33 @@ function statusColor(status) {
   return "var(--faint)";
 }
 
-export default function TestPanel({ project, isOpen, onToggle, locked = false, onTranscriptComplete }) {
+// Pass 18 — collect every subagent project id reachable from `project`,
+// recursively, so the client can ship them all in one request body. We
+// dedupe and stop at depth `subagentMaxDepth` to mirror the runtime's cap
+// (passing extras is harmless but pointless).
+function collectSubagentProjects(project, allProjects, depthCap = 8) {
+  const seen = new Set();
+  const out = {};
+  function walk(p, depth) {
+    if (!p || depth > depthCap) return;
+    const nodes = Array.isArray(p?.canvas?.nodes) ? p.canvas.nodes : [];
+    for (const n of nodes) {
+      if (n.role !== "subagent") continue;
+      const ref = n.subagentProjectId;
+      if (!ref || seen.has(ref)) continue;
+      seen.add(ref);
+      const child = (allProjects || []).find((q) => q.id === ref);
+      if (child) {
+        out[ref] = child;
+        walk(child, depth + 1);
+      }
+    }
+  }
+  walk(project, 0);
+  return out;
+}
+
+export default function TestPanel({ project, isOpen, onToggle, locked = false, onTranscriptComplete, allProjects = [] }) {
   const [models, setModels] = useState([]);
   const [modelsError, setModelsError] = useState(null);
   const [selectedModel, setSelectedModel] = useState("");
@@ -321,10 +347,19 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
     const ac = new AbortController();
     abortRef.current = ac;
     try {
+      // Pass 18 — gather subagent projects reachable from this project so
+      // the runtime can resolve every nested ref without phoning home.
+      const subagentProjects = collectSubagentProjects(project, allProjects);
       const res = await fetch("/api/agent/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ project, query, model: selectedModel || undefined, step }),
+        body: JSON.stringify({
+          project,
+          query,
+          model: selectedModel || undefined,
+          step,
+          subagentProjects,
+        }),
         signal: ac.signal,
       });
       if (!res.ok || !res.body) {

@@ -362,6 +362,158 @@ async function streamChat(baseUrl, model, messages, signal, onChunkBytes) {
   return { text: collected, parsed: safeJsonParse(collected), bytes };
 }
 
+// ── Subagent dispatcher ───────────────────────────────────────────────────
+//
+// Pass 18 — when a node has role "subagent", we resolve its referenced
+// project via the route-supplied `resolveSubagentProject` and recurse.
+//
+// Cycle detection: the chain of project ids is threaded through every
+// recursive call; a subagent that points back to any project already in
+// the chain is rejected before any LLM call.
+//
+// Depth cap: `runtime-config.subagentMaxDepth` (default 3). Top-level call
+// is depth 0; each recursive call increments. Exceeding the cap surfaces
+// as a clean node-error.
+//
+// Result shape mirrors a normal LLM call: { parsed, text, bytes, error,
+// subagent: { ref, transcript } }. The `subagent` field is studio-only
+// inspector context — the inspector drills into it; spec export drops it
+// (only the static `subagent.ref` portable field travels with the spec).
+
+async function runSubagentNode({
+  node,
+  project,
+  resolveSubagentProject,
+  chain,
+  depth,
+  model,
+  baseUrl,
+  signal,
+  loadedUploads,
+  upstreamResults,
+  onEvent,
+}) {
+  const ref = node.subagentProjectId;
+  if (!ref) {
+    return {
+      bytes: 0,
+      parsed: null,
+      text: "",
+      error: `subagent node "${node.id}" has no subagentProjectId set`,
+      subagent: null,
+    };
+  }
+  if (typeof resolveSubagentProject !== "function") {
+    return {
+      bytes: 0,
+      parsed: null,
+      text: "",
+      error: `subagent node "${node.id}" cannot be resolved (no resolver provided to runProject)`,
+      subagent: { ref, transcript: null },
+    };
+  }
+  // Cycle check.
+  if (chain.includes(ref)) {
+    const trail = chain.concat(ref).join(" → ");
+    return {
+      bytes: 0,
+      parsed: null,
+      text: "",
+      error: `subagent cycle detected: ${trail}`,
+      subagent: { ref, transcript: null },
+    };
+  }
+  // Depth cap.
+  const cap = DEFAULT_RUNTIME_CONFIG.subagentMaxDepth;
+  if (depth + 1 > cap) {
+    return {
+      bytes: 0,
+      parsed: null,
+      text: "",
+      error: `subagent depth cap (${cap}) exceeded at "${node.id}"`,
+      subagent: { ref, transcript: null },
+    };
+  }
+  const childProject = resolveSubagentProject(ref);
+  if (!childProject || !childProject.canvas) {
+    return {
+      bytes: 0,
+      parsed: null,
+      text: "",
+      error: `subagent project "${ref}" not found in store`,
+      subagent: { ref, transcript: null },
+    };
+  }
+
+  // Compose the subagent's "query" from upstream results when present —
+  // otherwise pass the parent's (cached) goal so the inner project still
+  // has a prompt to run against.
+  const upstream = [];
+  for (const [, r] of upstreamResults) {
+    if (!r) continue;
+    upstream.push(r.parsed ?? r.text ?? null);
+  }
+  const subQuery = upstream.length > 0
+    ? JSON.stringify(upstream, null, 2)
+    : (project.goal || "");
+
+  // Capture child events to bubble a `subagent-event` envelope to the
+  // parent caller — useful for inspector drill-down. Top-level events
+  // (warmup, level-start, etc.) are not echoed to the parent's onEvent so
+  // the parent UI doesn't double-render.
+  let subTranscript = null;
+  const subEvents = [];
+  const subOnEvent = (evt) => {
+    subEvents.push(evt);
+    if (evt.type === "complete") subTranscript = evt.transcript;
+  };
+  try {
+    const { transcript } = await runProject({
+      project: childProject,
+      query: subQuery,
+      model,
+      baseUrl,
+      signal,
+      loadedUploads,
+      // step gate is parent-only; nested runs always advance freely.
+      onEvent: subOnEvent,
+      resolveSubagentProject,
+      callChain: chain.concat(ref),
+    });
+    if (!subTranscript) subTranscript = transcript;
+  } catch (err) {
+    return {
+      bytes: 0,
+      parsed: null,
+      text: "",
+      error: err?.message || "subagent run failed",
+      subagent: { ref, transcript: subTranscript },
+    };
+  }
+  // Surface a single envelope event so the parent UI can update progress
+  // without verbose echo of every child event.
+  onEvent({
+    type: "subagent-complete",
+    id: node.id,
+    ref,
+    childNodeCount: subTranscript?.nodes?.length ?? 0,
+  });
+  // The subagent's "output" is the parsed payload of its last node when
+  // available, else the full transcript stringified. We pass parsed when
+  // possible so downstream nodes get structured data (per the design
+  // doc's mitigation: "pass only the parsed output, not raw text").
+  const lastNode = subTranscript?.nodes?.[subTranscript.nodes.length - 1] ?? null;
+  const parsed = lastNode?.parsed ?? null;
+  const text = parsed != null ? JSON.stringify(parsed) : (lastNode?.output ?? "");
+  const bytes = Buffer.byteLength(text, "utf8");
+  return {
+    bytes,
+    parsed,
+    text,
+    subagent: { ref, transcript: subTranscript },
+  };
+}
+
 // ── Public entry point ─────────────────────────────────────────────────────
 
 export async function runProject({
@@ -383,6 +535,16 @@ export async function runProject({
   // request body. Default no-op resolves immediately so non-step runs are
   // unaffected.
   stepGate,
+  // Pass 18 — subagent resolver. The runtime stays store-agnostic; the
+  // route passes a function that maps a projectId → project object. When a
+  // node has role "subagent" and a non-null subagentProjectId, the runtime
+  // calls this resolver and recursively runProject()'s the child.
+  // Shape: (projectId) => project | null
+  resolveSubagentProject,
+  // Pass 18 — chain of project ids currently being executed (parent →
+  // child → grandchild). Used by recursion for cycle + depth detection.
+  // Defaults to [project.id] for the top-level call.
+  callChain,
 }) {
   if (!project || !project.canvas) {
     throw new Error("project with canvas required");
@@ -432,6 +594,14 @@ export async function runProject({
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const results = new Map(); // id -> { id, role, title, durationMs, bytes, parsed, text }
 
+  // Pass 18 — recursion bookkeeping. The parent call seeds the chain with
+  // its own id; child runProject calls extend it. Reject if depth would
+  // exceed the configured cap or if a cycle would form.
+  const _chain = Array.isArray(callChain) && callChain.length > 0
+    ? callChain.slice()
+    : [project.id];
+  const _depth = _chain.length - 1; // top-level = 0
+
   for (let levelIdx = 0; levelIdx < plan.levels.length; levelIdx++) {
     const ids = plan.levels[levelIdx];
     onEvent({ type: "level-start", level: levelIdx, nodeIds: ids });
@@ -460,6 +630,53 @@ export async function runProject({
           onEvent({ type: "node-start", id, name: node.title, role: node.role });
           const t0 = Date.now();
           try {
+            // Pass 18 — subagent role. Recursively run the referenced
+            // project. The subagent's parsed output (or full transcript
+            // when none) becomes this node's result.
+            if (node.role === "subagent") {
+              const subResult = await runSubagentNode({
+                node,
+                project,
+                resolveSubagentProject,
+                chain: _chain,
+                depth: _depth,
+                model,
+                baseUrl,
+                signal,
+                loadedUploads,
+                upstreamResults: results,
+                onEvent,
+              });
+              const durationMs = Date.now() - t0;
+              results.set(id, {
+                id,
+                role: node.role,
+                title: node.title,
+                durationMs,
+                bytes: subResult.bytes,
+                parsed: subResult.parsed,
+                text: subResult.text,
+                subagent: subResult.subagent,
+                error: subResult.error ?? null,
+                systemPrompt: "",
+                userMessage: "",
+              });
+              if (subResult.error) {
+                onEvent({ type: "node-error", id, error: subResult.error });
+              } else {
+                onEvent({
+                  type: "node-end",
+                  id,
+                  durationMs,
+                  bytes: subResult.bytes,
+                  parsed: subResult.parsed,
+                  output: subResult.text,
+                  subagent: subResult.subagent,
+                });
+              }
+              return;
+            }
+
             const messages = buildMessages(node, project, query, plan.incoming, results, loadedUploads);
             const systemPrompt = messages.find((m) => m.role === "system")?.content ?? "";
             const userMessage = messages.find((m) => m.role === "user")?.content ?? "";
@@ -570,6 +787,10 @@ export async function runProject({
         systemPrompt: r?.systemPrompt ?? "",
         userMessage: r?.userMessage ?? "",
         mocked: r?.mocked === true,
+        // Pass 18 — subagent drill-down. Studio-only inspector context;
+        // the spec export drops everything except the static
+        // `subagentProjectId` / `subagent.ref` portable field.
+        subagent: r?.subagent ?? null,
       };
     }),
   };

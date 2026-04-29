@@ -122,10 +122,48 @@ export default function InspectorPanel({ open, onClose, node, record, onReplay }
 
         {!empty && (
           <div className="inspector-body-stack">
-            <CollapsibleBody label="System prompt" body={record.systemPrompt} />
-            <CollapsibleBody label="User message" body={record.userMessage} />
-            <CollapsibleBody label="Raw response" body={record.output} />
-            {parsedText && <CollapsibleBody label="Parsed JSON" body={parsedText} />}
+            {record.subagent ? (
+              <>
+                {/* Pass 18 — subagent drill-down. Sub-agent nodes don't
+                    have system+user prompts of their own (they delegate);
+                    instead we show the resolved ref + a per-child-node
+                    summary pulled from the nested transcript. */}
+                <section className="inspector-body">
+                  <div className="inspector-body-label">
+                    Sub-agent reference
+                    <span className="inspector-meta">{record.subagent.ref || "(missing)"}</span>
+                  </div>
+                  {record.subagent.transcript ? (
+                    <div className="inspector-subagent-list" data-inspector-subagent-list>
+                      {(record.subagent.transcript.nodes ?? []).map((sn) => (
+                        <div key={sn.id} className="inspector-subagent-row">
+                          <span className="inspector-subagent-title">{sn.title || sn.id}</span>
+                          <span className="inspector-subagent-meta">
+                            {sn.role} · {sn.durationMs ?? 0} ms · {(sn.bytes ?? 0).toLocaleString()} b
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="inspector-empty">No nested transcript captured.</div>
+                  )}
+                </section>
+                {record.subagent.transcript && (
+                  <CollapsibleBody
+                    label="Nested transcript (JSON)"
+                    body={JSON.stringify(record.subagent.transcript, null, 2)}
+                  />
+                )}
+                {parsedText && <CollapsibleBody label="Parent-visible parsed payload" body={parsedText} />}
+              </>
+            ) : (
+              <>
+                <CollapsibleBody label="System prompt" body={record.systemPrompt} />
+                <CollapsibleBody label="User message" body={record.userMessage} />
+                <CollapsibleBody label="Raw response" body={record.output} />
+                {parsedText && <CollapsibleBody label="Parsed JSON" body={parsedText} />}
+              </>
+            )}
           </div>
         )}
 
@@ -243,6 +281,27 @@ export default function InspectorPanel({ open, onClose, node, record, onReplay }
           color: var(--muted);
           font-weight: 400;
           letter-spacing: 0;
+        }
+        .inspector-subagent-list {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          padding: 8px 10px;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          background: var(--surface-muted);
+        }
+        .inspector-subagent-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 12px;
+        }
+        .inspector-subagent-title {
+          color: var(--ink);
+          font-weight: 500;
+        }
+        .inspector-subagent-meta {
+          color: var(--muted);
         }
         .inspector-pre {
           margin: 0;
