@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chief of Staff — Console</title>
+    <link rel="stylesheet" href="/console.css" />
+  </head>
+  <body>
+
+    <!-- ═══════════════════════════════════════════════════════
+         TOP STATUS BAR
+    ═══════════════════════════════════════════════════════ -->
+    <header class="statusbar" role="banner">
+      <div class="statusbar__left">
+        <span class="statusbar__title">Chief of Staff</span>
+        <span class="statusbar__sep" aria-hidden="true">·</span>
+        <span class="statusbar__label">v0.1.0</span>
+      </div>
+      <div class="statusbar__indicators" role="status" aria-live="polite" aria-label="System status">
+        <span class="indicator" id="sb-workspace">
+          <span class="indicator__dot" data-state="unknown"></span>
+          <span class="indicator__text">Workspace</span>
+        </span>
+        <span class="indicator" id="sb-model">
+          <span class="indicator__dot" data-state="unknown"></span>
+          <span class="indicator__text" id="sb-model-label">Model</span>
+        </span>
+        <span class="indicator" id="sb-network">
+          <span class="indicator__dot" data-state="ok"></span>
+          <span class="indicator__text">localhost only</span>
+        </span>
+        <span class="indicator indicator--badge" id="sb-approvals" aria-label="Pending approvals">
+          <span class="badge" id="sb-approval-count">0</span>
+          <span class="indicator__text">Approvals</span>
+        </span>
+      </div>
+      <div class="statusbar__right">
+        <button class="btn btn--ghost btn--sm" id="btn-refresh-all" type="button" title="Refresh all readiness checks">
+          Refresh
+        </button>
+        <button class="btn btn--ghost btn--sm" id="btn-inspect-contract" type="button" title="Inspect raw agent contract JSON">
+          Contract JSON
+        </button>
+      </div>
+    </header>
+
+    <!-- ═══════════════════════════════════════════════════════
+         APP SHELL
+    ═══════════════════════════════════════════════════════ -->
+    <div class="shell">
+
+      <!-- ─── LEFT SIDEBAR: Agent Operating Contract ─── -->
+      <aside class="sidebar" aria-label="Agent Operating Contract">
+
+        <section class="sidebar__block">
+          <p class="eyebrow">Agent</p>
+          <h1 class="sidebar__agent-name">Chief of Staff</h1>
+          <div class="sidebar__meta">
+            <span class="chip chip--neutral">v0.1.0</span>
+            <span class="chip chip--neutral">local-first</span>
+          </div>
+          <p class="sidebar__checked">Last checked: <span id="contract-checked">—</span></p>
+        </section>
+
+        <section class="sidebar__block">
+          <p class="eyebrow">Runtime</p>
+          <dl class="dl-compact">
+            <dt>Environment</dt><dd>Local browser app</dd>
+            <dt>Workspace</dt><dd>cos-workspace/</dd>
+            <dt>Model provider</dt><dd>Ollama (localhost)</dd>
+          </dl>
+        </section>
+
+        <section class="sidebar__block">
+          <p class="eyebrow">Trust Boundaries</p>
+          <ul class="trust-list">
+            <li class="trust-item trust-item--ok">Localhost model calls only</li>
+            <li class="trust-item trust-item--ok">Workspace-scoped writes</li>
+            <li class="trust-item trust-item--warn">Approval-gated sensitive writes</li>
+            <li class="trust-item trust-item--block">No deletes</li>
+            <li class="trust-item trust-item--block">No cloud dependency</li>
+          </ul>
+        </section>
+
+        <section class="sidebar__block">
+          <p class="eyebrow">Permission Legend</p>
+          <ul class="perm-legend">
+            <li><span class="perm-chip perm--read">Read local</span> Read only</li>
+            <li><span class="perm-chip perm--draft">Draft</span> Creates new files</li>
+            <li><span class="perm-chip perm--ask">Ask first</span> Pauses for approval</li>
+            <li><span class="perm-chip perm--system">System</span> System approved</li>
+            <li><span class="perm-chip perm--internet">Internet</span> Internet approved</li>
+            <li><span class="perm-chip perm--block">Blocked</span> Policy blocked</li>
+          </ul>
+        </section>
+
+        <nav class="sidebar__nav" aria-label="Console sections">
+          <a class="sidebar__navlink" href="#section-readiness">Readiness</a>
+          <a class="sidebar__navlink" href="#section-plan">Action Plan</a>
+          <a class="sidebar__navlink" href="#section-approvals">Approvals</a>
+          <a class="sidebar__navlink" href="#section-artifacts">Artifacts</a>
+          <a class="sidebar__navlink" href="#section-inputs">Inputs</a>
+        </nav>
+
+      </aside>
+
+      <!-- ─── MAIN CONTENT ─── -->
+      <main class="main" id="main-content">
+
+        <!-- ── CAPABILITY + READINESS ── -->
+        <section id="section-readiness" class="panel">
+          <div class="panel__header">
+            <div>
+              <p class="eyebrow">Capability + Readiness</p>
+              <h2 class="panel__title">System Status</h2>
+            </div>
+            <div class="panel__actions">
+              <button class="btn btn--sm" id="btn-init-workspace" type="button">Initialize Workspace</button>
+              <button class="btn btn--sm btn--ghost" id="btn-refresh-readiness" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <!-- Readiness table -->
+          <div class="table-wrap">
+            <table class="data-table" id="readiness-table" aria-label="Capability readiness">
+              <thead>
+                <tr>
+                  <th scope="col">Capability</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Detail</th>
+                  <th scope="col">Permission</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody id="readiness-tbody">
+                <!-- Populated by JS -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Model selector row -->
+          <div class="model-row" role="group" aria-label="Model selection">
+            <label class="model-row__label" for="modelSelect">Ollama model</label>
+            <select class="model-row__select" id="modelSelect" aria-describedby="model-hint"></select>
+            <span class="model-row__hint" id="model-hint">Recommended: <span id="model-recommended">—</span></span>
+            <label class="toggle-label" for="useModel">
+              <input class="toggle-cb" id="useModel" type="checkbox" checked />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span>Use model</span>
+            </label>
+            <label class="toggle-label" for="deterministicMode">
+              <input class="toggle-cb" id="deterministicMode" type="checkbox" />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span>Deterministic fallback</span>
+            </label>
+          </div>
+        </section>
+
+        <!-- ── ACTION PLAN + APPROVAL ── -->
+        <section id="section-plan" class="panel">
+          <div class="panel__header">
+            <div>
+              <p class="eyebrow">Action Plan</p>
+              <h2 class="panel__title">Current Run</h2>
+            </div>
+            <div class="panel__actions">
+              <button class="btn btn--primary btn--sm" id="generatePlan" type="button">Generate Daily Plan</button>
+              <button class="btn btn--sm btn--ghost" id="btn-import-ics" type="button">Import .ics</button>
+              <button class="btn btn--sm btn--ghost" id="btn-export-ics" type="button">Export .ics</button>
+              <!-- Hidden file input for .ics import -->
+              <input type="file" id="icsFileInput" accept=".ics" class="visually-hidden" aria-label="Choose .ics file" />
+            </div>
+          </div>
+
+          <!-- Plan run info bar -->
+          <div class="run-info" id="run-info" aria-live="polite">
+            <span class="run-info__item">Mode: <strong id="run-mode">—</strong></span>
+            <span class="run-info__sep" aria-hidden="true">·</span>
+            <span class="run-info__item">Ritual: <strong id="run-ritual">—</strong></span>
+            <span class="run-info__sep" aria-hidden="true">·</span>
+            <span class="run-info__item">Artifact: <a class="artifact-link" id="run-artifact" href="#" tabindex="0">—</a></span>
+          </div>
+
+          <!-- Plan steps -->
+          <div class="steps-row" id="plan-steps" role="list" aria-label="Plan steps">
+            <!-- Populated by JS -->
+          </div>
+
+          <!-- Plan output -->
+          <div id="planResult" class="plan-output" aria-live="polite" aria-label="Plan output">
+            <p class="empty-hint">Generate a daily plan to see output here.</p>
+          </div>
+        </section>
+
+        <!-- ── APPROVAL QUEUE ── -->
+        <section id="section-approvals" class="panel panel--attention">
+          <div class="panel__header">
+            <div>
+              <p class="eyebrow">Ask-first · Pause point</p>
+              <h2 class="panel__title">Approval Queue</h2>
+            </div>
+            <button class="btn btn--sm btn--ghost" id="refreshApprovals" type="button">Refresh</button>
+          </div>
+
+          <div class="approval-notice" role="note">
+            Approval is a <strong>pause before sensitive writes</strong>, not a notification. Pending items will not proceed until resolved.
+          </div>
+
+          <div id="approvalList" class="approval-list" aria-live="polite" aria-label="Pending approval items">
+            <p class="empty-hint">No pending approvals.</p>
+          </div>
+        </section>
+
+        <!-- ── INPUTS ── -->
+        <section id="section-inputs" class="panel">
+          <div class="panel__header">
+            <div>
+              <p class="eyebrow">Inputs</p>
+              <h2 class="panel__title">Goal, Notes &amp; Schedule</h2>
+            </div>
+            <button class="btn btn--sm btn--ghost" id="loadSample" type="button">Load sample .ics</button>
+          </div>
+          <div class="input-grid">
+            <label class="field">
+              <span class="field__label">Date</span>
+              <input class="field__input" id="planDate" type="date" />
+            </label>
+            <label class="field">
+              <span class="field__label">Goal</span>
+              <input class="field__input" id="goal" type="text" placeholder="What outcome should today protect?" />
+            </label>
+            <label class="field field--wide">
+              <span class="field__label">Notes and open loops</span>
+              <textarea class="field__input" id="notes" rows="5" placeholder="Paste priorities, commitments, decisions, owners, or constraints."></textarea>
+            </label>
+            <label class="field field--wide">
+              <span class="field__label">Schedule or .ics contents</span>
+              <textarea class="field__input" id="scheduleText" rows="7" placeholder="Paste calendar text or .ics contents, or use Import .ics above."></textarea>
+            </label>
+          </div>
+        </section>
+
+      </main>
+
+      <!-- ─── RIGHT RAIL: Artifacts + Audit ─── -->
+      <aside class="rail" aria-label="Artifacts and audit trail">
+
+        <section class="rail__block">
+          <p class="eyebrow">Recent Artifacts</p>
+          <ul class="artifact-list" id="artifact-list" aria-label="Recent artifacts">
+            <!-- Populated by JS -->
+          </ul>
+        </section>
+
+        <section class="rail__block">
+          <p class="eyebrow">Audit Trail</p>
+          <ol class="audit-list" id="audit-list" reversed aria-label="Audit trail" aria-live="polite">
+            <!-- Populated by JS -->
+          </ol>
+        </section>
+
+      </aside>
+
+    </div><!-- /shell -->
+
+    <!-- ═══════════════════════════════════════════════════════
+         CONTRACT JSON MODAL
+    ═══════════════════════════════════════════════════════ -->
+    <dialog class="modal" id="contract-modal" aria-labelledby="contract-modal-title" aria-modal="true">
+      <div class="modal__inner">
+        <div class="modal__header">
+          <h2 class="modal__title" id="contract-modal-title">Agent Operating Contract</h2>
+          <button class="modal__close btn btn--ghost btn--sm" id="modal-close" type="button" autofocus>Close</button>
+        </div>
+        <pre class="modal__pre" id="contract-json-pre" tabindex="0"></pre>
+      </div>
+    </dialog>
+
+    <!-- ═══════════════════════════════════════════════════════
+         CALENDAR RESULT MODAL (import/export feedback)
+    ═══════════════════════════════════════════════════════ -->
+    <dialog class="modal" id="calendar-modal" aria-labelledby="calendar-modal-title" aria-modal="true">
+      <div class="modal__inner">
+        <div class="modal__header">
+          <h2 class="modal__title" id="calendar-modal-title">Calendar</h2>
+          <button class="modal__close btn btn--ghost btn--sm" id="cal-modal-close" type="button" autofocus>Close</button>
+        </div>
+        <pre class="modal__pre" id="calendarResult" tabindex="0"></pre>
+      </div>
+    </dialog>
+
+    <script type="module" src="/console.js"></script>
+  </body>
+</html>

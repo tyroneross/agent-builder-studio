@@ -1,0 +1,28 @@
+export function planToMarkdown(plan) {
+  return [
+    `# ${plan.title || "Daily Operating Plan"}`,
+    "",
+    `Date: ${plan.date}`,
+    "",
+    "## Summary",
+    "",
+    plan.summary || "",
+    "",
+    "## Top Priorities",
+    "",
+    ...(plan.topPriorities || []).map((item, index) => `${index + 1}. ${item.outcome} — ${item.why || ""}`),
+    "",
+    "## Schedule",
+    "",
+    ...(plan.scheduleBlocks || []).map((block) => `- ${block.start}-${block.end} ${block.title} (${block.mode}) — ${block.why || ""}`),
+    "",
+    "## Follow-ups",
+    "",
+    ...(plan.followUps || []).map((item) => `- ${item.owner || "MISSING OWNER"}: ${item.action}${item.dueBy ? ` due ${item.dueBy}` : ""}`),
+    "",
+    "## Risks",
+    "",
+    ...(plan.risks || []).map((item) => `- [${item.severity}] ${item.risk} — ${item.mitigation || ""}`),
+    "",
+  ].join("\n");
+}
