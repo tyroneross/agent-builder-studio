@@ -737,6 +737,100 @@ test("runChiefOfStaff: loads ≤2 promoted lessons into triage + time_block_plan
   }
 });
 
+// ---------- G8: role-scoped briefs — triage does NOT see Calendar Architect content ----------
+
+test("runChiefOfStaff: each role sees only its own scoped brief", async () => {
+  const mod = await import("../lib/cos-runner.mjs");
+
+  const seen = {};
+  setChatImpl(async (opts) => {
+    if (opts.messages?.[0]?.content?.includes('Return {"ok":true}')) {
+      return { ok: true, text: '{"ok":true}', parsed: { ok: true }, raw: null, provider: opts.provider, model: opts.model };
+    }
+    const sys = Array.isArray(opts.system) ? opts.system.map((b) => b.text).join("|") : (opts.system ?? "");
+    const userMsg = opts.messages[0].content;
+    let key = "?";
+    if (userMsg.includes("schedule-intake skill")) key = "intake";
+    else if (userMsg.includes("Priority Strategist")) key = "triage";
+    else if (userMsg.includes("Calendar Architect")) key = "time_block_plan";
+    else if (userMsg.includes("decision log")) key = "decision_log";
+    else if (userMsg.includes("Follow-up Operator")) key = "follow_up_plan";
+    else if (userMsg.includes("Honesty Auditor")) key = "operating_risks";
+    seen[key] = sys;
+    const FAKE = '{"weekOf":"2026-W19","fixedEvents":[],"flexibleEvents":[],"baseline":{"deepWorkHours":0,"adminHours":0,"contextSwitches":0,"openLoopRisk":"low"},"notes":[],"topThree":[],"blocks":[],"decisions":[],"items":[],"missingOwners":[],"risks":[]}';
+    return { ok: true, text: FAKE, parsed: JSON.parse(FAKE), raw: null, provider: opts.provider, model: opts.model };
+  });
+
+  const dir = await mkdtemp(join(tmpdir(), "cos-roles-"));
+  try {
+    await mod.runChiefOfStaff({
+      schedule: '{"weekOf":"2026-W19","events":[]}',
+      goals: "test",
+      allowCloud: "never",
+      onEvent: () => {},
+      runDir: dir,
+    });
+    // The team brief (cached static block) names every role — that's
+    // background context. The ROLE-SCOPED brief carries each role's mission +
+    // guardrails and must NOT bleed into other roles. We check for unique
+    // mission/guardrail strings, not role names.
+    assert.match(seen.triage, /Pick the THREE weekly outcomes/);
+    assert.doesNotMatch(seen.triage, /Arrange 5–9 named time blocks/);
+    assert.doesNotMatch(seen.triage, /Flag missing owners, blocked decisions/);
+    assert.match(seen.time_block_plan, /Arrange 5–9 named time blocks/);
+    assert.doesNotMatch(seen.time_block_plan, /Pick the THREE weekly outcomes/);
+    assert.match(seen.operating_risks, /Flag missing owners, blocked decisions/);
+    assert.doesNotMatch(seen.operating_risks, /Pick the THREE weekly outcomes/);
+    // Intake has no role mapping → no role brief at all
+    assert.doesNotMatch(seen.intake, /Mission:/);
+  } finally {
+    setChatImpl(null);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------- G9: telemetry rows include role field ----------
+
+test("runChiefOfStaff: telemetry rows carry role (or null for intake / _warmup / _run)", async () => {
+  const mod = await import("../lib/cos-runner.mjs");
+
+  setChatImpl(async (opts) => {
+    if (opts.messages?.[0]?.content?.includes('Return {"ok":true}')) {
+      return { ok: true, text: '{"ok":true}', parsed: { ok: true }, raw: null, provider: opts.provider, model: opts.model };
+    }
+    const FAKE = '{"weekOf":"2026-W19","fixedEvents":[],"flexibleEvents":[],"baseline":{"deepWorkHours":0,"adminHours":0,"contextSwitches":0,"openLoopRisk":"low"},"notes":[],"topThree":[],"blocks":[],"decisions":[],"items":[],"missingOwners":[],"risks":[]}';
+    return { ok: true, text: FAKE, parsed: JSON.parse(FAKE), raw: null, provider: opts.provider, model: opts.model };
+  });
+
+  const dir = await mkdtemp(join(tmpdir(), "cos-rolerows-"));
+  try {
+    await mod.runChiefOfStaff({
+      schedule: '{"weekOf":"2026-W19","events":[]}',
+      goals: "test",
+      allowCloud: "never",
+      onEvent: () => {},
+      runDir: dir,
+    });
+    const tel = (await readFile(join(dir, "telemetry.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
+    // Every row must have the role key (even if null).
+    for (const r of tel) {
+      assert.ok("role" in r, `row missing role field: ${JSON.stringify(r)}`);
+    }
+    // Triage rows must carry role="priority_strategist". Intake rows must carry role=null.
+    const triageRows = tel.filter((r) => r.node === "triage");
+    assert.ok(triageRows.length > 0);
+    for (const r of triageRows) assert.equal(r.role, "priority_strategist");
+    const intakeRows = tel.filter((r) => r.node === "intake");
+    for (const r of intakeRows) assert.equal(r.role, null);
+    // Honesty Auditor rows must carry role="honesty_auditor"
+    const orRows = tel.filter((r) => r.node === "operating_risks");
+    for (const r of orRows) assert.equal(r.role, "honesty_auditor");
+  } finally {
+    setChatImpl(null);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 // ---------- F4: per-node tier honored end-to-end ----------
 
 test("runChiefOfStaff: per-node tier produces different models in telemetry", async () => {
