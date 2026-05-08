@@ -1,63 +1,112 @@
 "use client";
 
+// Chief of Staff workbench.
+//
+// Wired to /api/cos/run (the cascade-aware endpoint). SSE event taxonomy:
+//   warmup / warmup-ok / warmup-fail
+//   cascade-attempt        — fired before each cascade step's provider call
+//   node-start / node-chunk / node-end / node-error  — per-node lifecycle
+//   lesson-loaded          — promoted lessons injected (full text + nodes)
+//   run-summary            — penultimate event with the {perNode, totals} digest
+//   complete               — final event with brief + transcript
+//
+// State machine per node row (see CascadeTimeline):
+//   pending → trying (cascade-attempt) → ok (node-end) | failed (node-error)
+
 import { useEffect, useMemo, useRef, useState } from "react";
+import CascadeTimeline, { NODE_ORDER } from "./components/CascadeTimeline";
+import CloudControls from "./components/CloudControls";
+import TelemetryPanel from "./components/TelemetryPanel";
 
-const DEFAULT_GOAL = "";
+const EMPTY_NODE = { status: "pending" };
 
-export default function PlannerPage() {
-  const [models, setModels] = useState([]);
-  const [model, setModel] = useState("gpt-oss:20b");
-  const [goal, setGoal] = useState(DEFAULT_GOAL);
-  const [context, setContext] = useState("");
-  const [samples, setSamples] = useState([]);
+const initialNodes = () =>
+  Object.fromEntries(NODE_ORDER.map((k) => [k, { ...EMPTY_NODE }]));
+
+export default function CosPage() {
+  // ---------- input state ----------
+  const [schedule, setSchedule] = useState("");
+  const [goals, setGoals] = useState("");
+  const [sample, setSample] = useState(null); // last loaded sample for restore-button label
   const [running, setRunning] = useState(false);
-  const [warmup, setWarmup] = useState(null);
-  const [outline, setOutline] = useState(null);
-  const [outlineStatus, setOutlineStatus] = useState("idle");
-  const [sections, setSections] = useState({});
+
+  // ---------- cascade controls ----------
+  const [allowCloud, setAllowCloud] = useState("on-failure");
+  const [maxCloudTokens, setMaxCloudTokens] = useState(200000);
+  const [envStatus, setEnvStatus] = useState(null);
+
+  // ---------- run state ----------
+  const [warmup, setWarmup] = useState(null); // null | "running" | "ok" | "fail"
+  const [warmupTarget, setWarmupTarget] = useState(null);
+  const [nodes, setNodes] = useState(initialNodes);
+  const [lessons, setLessons] = useState(null); // {lessons: [...], nodes: [...]}
+  const [summary, setSummary] = useState(null);
   const [brief, setBrief] = useState("");
+  const [transcript, setTranscript] = useState(null);
   const [error, setError] = useState("");
+
   const abortRef = useRef(null);
 
+  // ---------- bootstrap: env-status + sample schedule ----------
   useEffect(() => {
-    fetch("/api/cos/models")
+    fetch("/api/cos/env-status")
       .then((r) => r.json())
+      .then(setEnvStatus)
+      .catch(() => setEnvStatus({ groq: false, anthropic: false, openai: false }));
+
+    // Try to load the bundled sample schedule for one-click input.
+    fetch("/api/cos/sample")
+      .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        const list = d.models ?? [];
-        setModels(list);
-        const preferred = ["gpt-oss:20b", "qwen2.5-coder:32b-instruct-q5_K_M", "qwen3:8b-q4_K_M"];
-        const first = preferred.find((p) => list.some((m) => m.name === p)) ?? list[0]?.name;
-        if (first) setModel(first);
+        if (d?.schedule) {
+          setSample({ schedule: d.schedule, goal: d.goal ?? "" });
+        }
       })
-      .catch(() => {});
-    fetch("/api/plan/sample")
-      .then((r) => r.json())
-      .then((d) => setSamples(d.samples ?? []))
       .catch(() => {});
   }, []);
 
-  function loadSample(sample) {
-    setGoal(sample.goal);
-    setContext(sample.context);
+  function loadSample() {
+    if (!sample) return;
+    setSchedule(sample.schedule);
+    if (sample.goal) setGoals(sample.goal);
+  }
+
+  function clearAll() {
+    setSchedule("");
+    setGoals("");
+  }
+
+  // ---------- run lifecycle ----------
+
+  function resetRunState() {
+    setError("");
+    setBrief("");
+    setTranscript(null);
+    setSummary(null);
+    setLessons(null);
+    setWarmup(null);
+    setWarmupTarget(null);
+    setNodes(initialNodes());
   }
 
   async function start() {
+    if (running) return;
+    resetRunState();
     setRunning(true);
-    setError("");
-    setBrief("");
-    setWarmup(null);
-    setOutline(null);
-    setOutlineStatus("running");
-    setSections({});
 
     const ac = new AbortController();
     abortRef.current = ac;
 
     try {
-      const res = await fetch("/api/plan/run", {
+      const res = await fetch("/api/cos/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model, goal, context }),
+        body: JSON.stringify({
+          schedule,
+          goals,
+          allowCloud,
+          maxCloudTokens,
+        }),
         signal: ac.signal,
       });
       if (!res.ok) {
@@ -87,196 +136,208 @@ export default function PlannerPage() {
         }
       }
     } catch (err) {
-      if (err.name !== "AbortError") setError(err.message);
+      if (err.name !== "AbortError") setError(err.message ?? String(err));
     } finally {
       setRunning(false);
       abortRef.current = null;
     }
   }
 
-  function handleEvent(ev) {
-    if (ev.type === "warmup") setWarmup({ status: "running" });
-    if (ev.type === "warmup-ok") setWarmup({ status: "ok" });
-    if (ev.type === "warmup-fail") setWarmup({ status: "fail", error: ev.error });
-    if (ev.type === "outline-start") setOutlineStatus("running");
-    if (ev.type === "outline-chunk") setOutline((o) => ({ ...(o ?? {}), bytes: ev.bytes }));
-    if (ev.type === "outline-end") {
-      setOutline({ ...ev.outline, durationMs: ev.durationMs });
-      setOutlineStatus("ok");
-      const initial = {};
-      for (const s of ev.outline.sections) initial[s.id] = { status: "idle", name: s.name, shape: s.shape };
-      setSections(initial);
-    }
-    if (ev.type === "outline-error") {
-      setOutlineStatus("error");
-      setError(ev.error);
-    }
-    if (ev.type === "section-start") {
-      setSections((s) => ({
-        ...s,
-        [ev.id]: { ...(s[ev.id] ?? {}), status: "running", bytes: 0 },
-      }));
-    }
-    if (ev.type === "section-chunk") {
-      setSections((s) => ({
-        ...s,
-        [ev.id]: { ...(s[ev.id] ?? {}), bytes: ev.bytes },
-      }));
-    }
-    if (ev.type === "section-end") {
-      setSections((s) => ({
-        ...s,
-        [ev.id]: {
-          ...(s[ev.id] ?? {}),
-          status: "ok",
-          durationMs: ev.durationMs,
-          bytes: ev.bytes,
-        },
-      }));
-    }
-    if (ev.type === "section-error") {
-      setSections((s) => ({
-        ...s,
-        [ev.id]: { ...(s[ev.id] ?? {}), status: "error", error: ev.error },
-      }));
-    }
-    if (ev.type === "complete") setBrief(ev.brief);
-    if (ev.type === "fatal") setError(ev.error);
-  }
-
   function cancel() {
     abortRef.current?.abort();
   }
 
-  const orderedSections = useMemo(
-    () => (outline?.sections ?? []).map((s) => ({ ...s, ...(sections[s.id] ?? {}) })),
-    [outline, sections],
-  );
+  function handleEvent(ev) {
+    switch (ev.type) {
+      case "warmup":
+        setWarmup("running");
+        setWarmupTarget(`${ev.provider}/${ev.model}`);
+        break;
+      case "warmup-ok":
+        setWarmup("ok");
+        break;
+      case "warmup-fail":
+        setWarmup("fail");
+        break;
+      case "warmup-skip":
+        setWarmup("ok");
+        break;
+      case "cascade-attempt":
+        setNodes((s) => ({
+          ...s,
+          [ev.node]: {
+            ...(s[ev.node] ?? {}),
+            status: "trying",
+            currentLane: ev.lane,
+            currentProvider: ev.provider,
+            currentModel: ev.model,
+            attempt: ev.attempt,
+          },
+        }));
+        break;
+      case "node-end":
+        setNodes((s) => ({
+          ...s,
+          [ev.key]: {
+            ...(s[ev.key] ?? {}),
+            status: "ok",
+            durationMs: ev.durationMs,
+            lane: ev.lane,
+            provider: ev.provider,
+            model: ev.model,
+            parseRetried: ev.parseRetried ?? false,
+          },
+        }));
+        break;
+      case "node-error":
+        setNodes((s) => ({
+          ...s,
+          [ev.key]: {
+            ...(s[ev.key] ?? {}),
+            status: "failed",
+            durationMs: ev.durationMs,
+            error: ev.error,
+            lane: s[ev.key]?.currentLane ?? null,
+            provider: ev.provider,
+            model: ev.model,
+          },
+        }));
+        break;
+      case "lesson-loaded":
+        setLessons({ lessons: ev.lessons ?? [], nodes: ev.nodes ?? [] });
+        break;
+      case "run-summary":
+        setSummary(ev.summary);
+        break;
+      case "complete":
+        setBrief(ev.brief ?? "");
+        setTranscript(ev.transcript ?? null);
+        break;
+      case "fatal":
+        setError(ev.error ?? "fatal error");
+        break;
+      default:
+        break;
+    }
+  }
+
+  const canRun = useMemo(() => !running, [running]);
+  const allLanesUnreachable =
+    error && error.includes("unreachable") && envStatus && !envStatus.groq && !envStatus.anthropic && !envStatus.openai;
 
   return (
     <div className="cos-shell">
       <header className="cos-header">
-        <h1>Planner</h1>
-        <p>Local agent. Designs its own structure for any planning task. Runs on your Ollama models.</p>
+        <h1>Chief of Staff</h1>
+        <p>
+          Local-first cascade. Falls back to Groq, Anthropic, then OpenAI when
+          local lanes fail. Telemetry per node, role-scoped briefs, learning
+          ledger injection.
+        </p>
       </header>
 
+      <CloudControls
+        allowCloud={allowCloud}
+        setAllowCloud={setAllowCloud}
+        maxCloudTokens={maxCloudTokens}
+        setMaxCloudTokens={setMaxCloudTokens}
+        envStatus={envStatus}
+        disabled={running}
+      />
+
       <section className="cos-form">
-        <div className="cos-row">
-          <label>
-            <span>Model</span>
-            <select value={model} onChange={(e) => setModel(e.target.value)} disabled={running}>
-              {models.length === 0 && <option value={model}>{model}</option>}
-              {models.map((m) => (
-                <option key={m.name} value={m.name}>
-                  {m.name}
-                  {m.sizeGB ? ` · ${m.sizeGB} GB` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {samples.length > 0 && (
-          <div className="cos-row">
-            <span className="cos-row-label">Start from a template</span>
-            <div className="cos-samples">
-              {samples.map((s) => (
-                <button
-                  key={s.label}
-                  type="button"
-                  className="cos-sample"
-                  onClick={() => loadSample(s)}
-                  disabled={running}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+        <header className="cos-form-head">
+          <h2>Inputs</h2>
+          <div className="cos-form-actions">
+            {sample && (
+              <button
+                type="button"
+                className="cos-secondary"
+                onClick={loadSample}
+                disabled={running}
+              >
+                Load sample
+              </button>
+            )}
+            <button
+              type="button"
+              className="cos-secondary"
+              onClick={clearAll}
+              disabled={running}
+            >
+              Clear
+            </button>
           </div>
-        )}
+        </header>
 
-        <div className="cos-row">
-          <label>
-            <span>Goal</span>
-            <textarea
-              rows={3}
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              disabled={running}
-              placeholder="What do you want planned? e.g. Plan a 6-week rollout for the auth refactor."
-            />
-          </label>
-        </div>
+        <label className="cos-field">
+          <span>Schedule (JSON)</span>
+          <textarea
+            rows={8}
+            value={schedule}
+            onChange={(e) => setSchedule(e.target.value)}
+            disabled={running}
+            placeholder='{"weekOf": "2026-05-12", "fixedEvents": [...], "flexibleEvents": [...]}'
+            spellCheck={false}
+          />
+        </label>
 
-        <div className="cos-row">
-          <label>
-            <span>Context (optional)</span>
-            <textarea
-              rows={10}
-              value={context}
-              onChange={(e) => setContext(e.target.value)}
-              disabled={running}
-              placeholder="Paste any relevant data: schedules, scope notes, constraints, prior decisions."
-            />
-          </label>
-        </div>
+        <label className="cos-field">
+          <span>Goal (optional — defaults to a productivity goal)</span>
+          <textarea
+            rows={3}
+            value={goals}
+            onChange={(e) => setGoals(e.target.value)}
+            disabled={running}
+            placeholder="e.g. Become 100x more productive on high-leverage strengths."
+          />
+        </label>
 
         <div className="cos-actions">
           {!running ? (
             <button
               type="button"
-              className="cos-primary"
+              className={`cos-primary ${canRun ? "cos-primary-active" : ""}`}
               onClick={start}
-              disabled={!model || !goal.trim()}
+              disabled={!canRun}
             >
               Run agent
             </button>
           ) : (
-            <button type="button" className="cos-secondary" onClick={cancel}>
+            <button type="button" className="cos-cancel" onClick={cancel}>
               Cancel
             </button>
           )}
-          {error && <span className="cos-error">{error}</span>}
+          {warmup && (
+            <span className={`cos-warmup cos-warmup-${warmup}`}>
+              warmup: {warmup === "running" ? `loading ${warmupTarget}…` : warmup}
+            </span>
+          )}
         </div>
+
+        {error && (
+          <p className="cos-error">
+            {error}
+            {allLanesUnreachable && (
+              <>
+                {" "}
+                <a href="#cloud-keys-help">Set up cloud keys</a>
+              </>
+            )}
+          </p>
+        )}
       </section>
 
-      <section className="cos-progress">
-        <h2>Progress</h2>
-        <ol className="cos-steps">
-          <li className={`cos-step cos-step-${warmup?.status ?? "idle"}`}>
-            <span className="cos-step-label">Warmup</span>
-            <span className="cos-step-meta">
-              {warmup?.status === "running" && "loading model..."}
-              {warmup?.status === "ok" && "ready"}
-              {warmup?.status === "fail" && (warmup.error ?? "failed")}
-            </span>
-          </li>
-          <li className={`cos-step cos-step-${outlineStatus}`}>
-            <span className="cos-step-label">Outline</span>
-            <span className="cos-step-meta">
-              {outlineStatus === "idle" && "waiting"}
-              {outlineStatus === "running" && `${outline?.bytes ?? 0} bytes...`}
-              {outlineStatus === "ok" &&
-                `${outline?.sections?.length ?? 0} sections · ${(outline.durationMs / 1000).toFixed(1)}s ✓`}
-              {outlineStatus === "error" && "failed"}
-            </span>
-          </li>
-          {orderedSections.map((s) => (
-            <li key={s.id} className={`cos-step cos-step-${s.status ?? "idle"}`}>
-              <span className="cos-step-label">
-                {s.name}
-                <span className="cos-step-shape">[{s.shape}]</span>
-              </span>
-              <span className="cos-step-meta">
-                {s.status === "running" && `${s.bytes ?? 0} bytes...`}
-                {s.status === "ok" && `${(s.durationMs / 1000).toFixed(1)}s · ${s.bytes}b ✓`}
-                {s.status === "error" && `✗ ${s.error}`}
-                {(!s.status || s.status === "idle") && "queued"}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </section>
+      <CascadeTimeline nodes={nodes} />
+
+      {summary && (
+        <TelemetryPanel
+          summary={summary}
+          brief={brief}
+          transcript={transcript}
+          lessons={lessons?.lessons}
+        />
+      )}
 
       {brief && (
         <section className="cos-brief">
@@ -287,7 +348,7 @@ export default function PlannerPage() {
 
       <style jsx>{`
         .cos-shell {
-          max-width: 880px;
+          max-width: 960px;
           margin: 0 auto;
           padding: 32px 24px 80px;
           color: var(--ink);
@@ -300,160 +361,136 @@ export default function PlannerPage() {
         .cos-header p {
           margin: 6px 0 24px;
           color: var(--muted);
+          font-size: 14px;
+          line-height: 1.5;
         }
         .cos-form,
-        .cos-progress,
         .cos-brief {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: 12px;
-          padding: 20px;
-          margin-bottom: 16px;
+          padding: 16px 18px;
+          margin-bottom: 12px;
         }
-        .cos-row {
+        .cos-form-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
           margin-bottom: 14px;
         }
-        .cos-row label {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-        .cos-row span,
-        .cos-row-label {
-          font-size: 12px;
-          font-weight: 600;
+        .cos-form-head h2 {
+          margin: 0;
+          font-size: 14px;
+          font-weight: 700;
           letter-spacing: 0.02em;
           text-transform: uppercase;
           color: var(--muted);
         }
-        .cos-samples {
+        .cos-form-actions {
           display: flex;
-          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .cos-field {
+          display: grid;
           gap: 6px;
-          margin-top: 6px;
+          margin-bottom: 14px;
         }
-        .cos-sample {
-          padding: 6px 12px;
-          border-radius: 999px;
-          border: 1px solid var(--border);
-          background: var(--surface);
+        .cos-field span {
+          color: var(--muted);
           font-size: 12px;
-          cursor: pointer;
-          color: var(--ink);
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
         }
-        .cos-sample:hover:not(:disabled) {
-          border-color: var(--accent);
-          color: var(--accent-strong);
-        }
-        .cos-sample:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .cos-row select,
-        .cos-row textarea {
-          width: 100%;
-          font-family: inherit;
-          font-size: 14px;
-          padding: 10px 12px;
-          border-radius: 8px;
-          border: 1px solid var(--border);
-          background: var(--bg);
-          color: var(--ink);
-        }
-        .cos-row textarea {
+        .cos-field textarea {
           font-family: ui-monospace, "SF Mono", Menlo, monospace;
           font-size: 13px;
           line-height: 1.45;
           resize: vertical;
         }
-        .cos-row textarea:focus,
-        .cos-row select:focus {
-          outline: 2px solid var(--accent-soft);
-          border-color: var(--accent);
-        }
         .cos-actions {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 14px;
           margin-top: 8px;
         }
-        .cos-primary,
-        .cos-secondary {
+        .cos-primary {
           padding: 10px 18px;
           border-radius: 8px;
           font-weight: 600;
           font-size: 14px;
           cursor: pointer;
           border: 1px solid transparent;
+          background: var(--surface-muted);
+          color: var(--faint);
         }
-        .cos-primary {
+        .cos-primary-active {
           background: var(--accent);
           color: #fff;
         }
-        .cos-primary:hover:not(:disabled) {
+        .cos-primary-active:hover {
           background: var(--accent-strong);
         }
         .cos-primary:disabled {
-          background: var(--surface-muted);
-          color: var(--faint);
           cursor: not-allowed;
         }
         .cos-secondary {
+          padding: 6px 12px;
+          border-radius: 8px;
+          font-weight: 500;
+          font-size: 12px;
+          cursor: pointer;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--ink);
+        }
+        .cos-secondary:hover:not(:disabled) {
+          border-color: var(--accent);
+          color: var(--accent-strong);
+        }
+        .cos-secondary:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .cos-cancel {
+          padding: 10px 18px;
+          border-radius: 8px;
+          font-weight: 600;
+          font-size: 14px;
+          cursor: pointer;
           background: var(--surface);
           color: var(--danger);
-          border-color: var(--danger);
+          border: 1px solid var(--danger);
+        }
+        .cos-warmup {
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 12px;
+        }
+        .cos-warmup-running {
+          color: var(--policy);
+        }
+        .cos-warmup-ok {
+          color: var(--accent-strong);
+        }
+        .cos-warmup-fail {
+          color: var(--danger);
         }
         .cos-error {
           color: var(--danger);
           font-size: 13px;
+          line-height: 1.45;
+          margin: 12px 0 0;
         }
-        .cos-progress h2,
+        .cos-error a {
+          color: inherit;
+        }
         .cos-brief h2 {
-          margin: 0 0 14px;
-          font-size: 16px;
-          letter-spacing: 0.01em;
-        }
-        .cos-steps {
-          list-style: none;
-          padding: 0;
-          margin: 0;
-        }
-        .cos-step {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 10px 12px;
-          border-radius: 8px;
-          margin-bottom: 6px;
-          background: var(--surface-muted);
-          border: 1px solid transparent;
-        }
-        .cos-step-label {
-          font-weight: 500;
+          margin: 0 0 12px;
           font-size: 14px;
-        }
-        .cos-step-shape {
-          margin-left: 8px;
-          font-family: ui-monospace, "SF Mono", Menlo, monospace;
-          font-size: 11px;
-          color: var(--faint);
-          font-weight: 400;
-        }
-        .cos-step-meta {
-          font-family: ui-monospace, "SF Mono", Menlo, monospace;
-          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
           color: var(--muted);
-        }
-        .cos-step-running {
-          border-color: var(--accent);
-          background: var(--accent-soft);
-        }
-        .cos-step-ok {
-          border-color: var(--accent);
-        }
-        .cos-step-error {
-          border-color: var(--danger);
-          background: var(--danger-soft);
         }
         .cos-brief pre {
           margin: 0;
@@ -461,7 +498,7 @@ export default function PlannerPage() {
           word-wrap: break-word;
           font-family: ui-monospace, "SF Mono", Menlo, monospace;
           font-size: 13px;
-          line-height: 1.5;
+          line-height: 1.55;
           background: var(--bg);
           padding: 14px;
           border-radius: 8px;
