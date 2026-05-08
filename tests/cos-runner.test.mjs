@@ -62,16 +62,33 @@ test("resolveCascade: never -> [primary, fallback], no cloud", () => {
   assert.deepEqual(c.map((s) => s.provider), ["ollama", "ollama"]);
 });
 
-test("resolveCascade: on-failure -> [primary, fallback, cloud]", () => {
-  const c = resolveCascade("triage", { allowCloud: "on-failure", maxCloudTokens: 200000 });
-  assert.equal(c.length, 3);
-  assert.deepEqual(c.map((s) => s.lane), ["local-primary", "local-fallback", "cloud"]);
+test("resolveCascade: on-failure with all keys -> [primary, fallback, cloud, cloud-secondary, cloud-tertiary]", () => {
+  const env = { GROQ_API_KEY: "x", ANTHROPIC_API_KEY: "x", OPENAI_API_KEY: "x" };
+  const c = resolveCascade("triage", { allowCloud: "on-failure", maxCloudTokens: 200000 }, null, env);
+  assert.equal(c.length, 5);
+  assert.deepEqual(
+    c.map((s) => s.lane),
+    ["local-primary", "local-fallback", "cloud", "cloud-secondary", "cloud-tertiary"],
+  );
   assert.equal(c[2].provider, "groq");
+  assert.equal(c[3].provider, "anthropic");
+  assert.equal(c[4].provider, "openai");
 });
 
-test("resolveCascade: always -> [cloud, primary, fallback]", () => {
-  const c = resolveCascade("triage", { allowCloud: "always", maxCloudTokens: 200000 });
-  assert.deepEqual(c.map((s) => s.lane), ["cloud", "local-primary", "local-fallback"]);
+test("resolveCascade: missing API keys drop their cloud lanes", () => {
+  const env = { GROQ_API_KEY: "x" }; // anthropic + openai keys absent
+  const c = resolveCascade("triage", { allowCloud: "on-failure", maxCloudTokens: 200000 }, null, env);
+  assert.equal(c.length, 3);
+  assert.deepEqual(c.map((s) => s.lane), ["local-primary", "local-fallback", "cloud"]);
+});
+
+test("resolveCascade: always with all keys -> [cloud lanes, then locals]", () => {
+  const env = { GROQ_API_KEY: "x", ANTHROPIC_API_KEY: "x", OPENAI_API_KEY: "x" };
+  const c = resolveCascade("triage", { allowCloud: "always", maxCloudTokens: 200000 }, null, env);
+  assert.deepEqual(
+    c.map((s) => s.lane),
+    ["cloud", "cloud-secondary", "cloud-tertiary", "local-primary", "local-fallback"],
+  );
 });
 
 test("resolveCascade: userOverride collapses to single step", () => {
@@ -127,19 +144,30 @@ test("providers.chat: missing provider param returns ok:false", async () => {
   assert.match(env.error, /missing 'provider'/);
 });
 
-test("anthropic stub returns provider-disabled envelope with stable shape", async () => {
-  const env = await anthropicChat({ model: "claude-anything" });
-  assert.equal(env.ok, false);
-  assert.equal(env.provider, "anthropic");
-  assert.equal(env.reason, FAILURE_REASONS.PROVIDER_DISABLED);
-  assert.equal(env.retryable, false);
+test("anthropic.chat: missing ANTHROPIC_API_KEY returns missing-key envelope", async () => {
+  const orig = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  try {
+    const env = await anthropicChat({ model: "claude-anything", messages: [{ role: "user", content: "x" }] });
+    assert.equal(env.ok, false);
+    assert.equal(env.provider, "anthropic");
+    assert.equal(env.reason, FAILURE_REASONS.MISSING_KEY);
+  } finally {
+    if (orig != null) process.env.ANTHROPIC_API_KEY = orig;
+  }
 });
 
-test("openai stub returns provider-disabled envelope with stable shape", async () => {
-  const env = await openaiChat({ model: "gpt-anything" });
-  assert.equal(env.ok, false);
-  assert.equal(env.provider, "openai");
-  assert.equal(env.reason, FAILURE_REASONS.PROVIDER_DISABLED);
+test("openai.chat: missing OPENAI_API_KEY returns missing-key envelope", async () => {
+  const orig = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const env = await openaiChat({ model: "gpt-anything", messages: [{ role: "user", content: "x" }] });
+    assert.equal(env.ok, false);
+    assert.equal(env.provider, "openai");
+    assert.equal(env.reason, FAILURE_REASONS.MISSING_KEY);
+  } finally {
+    if (orig != null) process.env.OPENAI_API_KEY = orig;
+  }
 });
 
 // ---------- groq missing key path ----------
@@ -204,6 +232,11 @@ test("recordTelemetry: appends one JSONL row per call", async () => {
 test("runChiefOfStaff: cascade falls back from local to cloud on local error", async () => {
   const mod = await import("../lib/cos-runner.mjs");
 
+  // The cascade builder filters cloud lanes lacking API keys. Set a stub key
+  // so the groq lane is included. The mocked chat impl ignores the value.
+  const origGroq = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = "test-stub";
+
   const calls = [];
   setChatImpl(async (opts) => {
     calls.push({ provider: opts.provider, model: opts.model });
@@ -260,6 +293,7 @@ test("runChiefOfStaff: cascade falls back from local to cloud on local error", a
     assert.ok(groqWins.length >= 6, "expected groq success rows for all 6 nodes");
   } finally {
     setChatImpl(null);
+    if (origGroq != null) process.env.GROQ_API_KEY = origGroq; else delete process.env.GROQ_API_KEY;
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -478,6 +512,228 @@ test("runChiefOfStaff: warmup picks smallest local model, not synthesis", async 
   } finally {
     setChatImpl(null);
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------- G3/G4: Anthropic provider — JSON parse + cache_control ----------
+
+test("anthropic.chat: parses prefilled-{ JSON and reports cache tokens when present", async () => {
+  // Stub the global fetch for this single test.
+  const origFetch = globalThis.fetch;
+  let capturedBody = null;
+  let capturedHeaders = null;
+  globalThis.fetch = async (url, init) => {
+    capturedBody = JSON.parse(init.body);
+    capturedHeaders = init.headers;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        content: [{ type: "text", text: '"weekOf":"2026-W19","fixedEvents":[],"flexibleEvents":[],"baseline":{"deepWorkHours":0,"adminHours":0,"contextSwitches":0,"openLoopRisk":"low"},"notes":[],"topThree":[],"blocks":[],"decisions":[],"items":[],"missingOwners":[],"risks":[]}' }],
+        usage: { input_tokens: 120, output_tokens: 88, cache_read_input_tokens: 60, cache_creation_input_tokens: 0 },
+      }),
+    };
+  };
+  const orig = process.env.ANTHROPIC_API_KEY;
+  process.env.ANTHROPIC_API_KEY = "test-stub";
+  try {
+    const { chat: ach } = await import("../lib/providers/anthropic.mjs");
+    const env = await ach({
+      model: "claude-haiku-4-5-20251001",
+      system: [
+        { type: "text", text: "STATIC RULES", cache_control: { type: "ephemeral" } },
+        { type: "text", text: "DYNAMIC ROLE INFO" },
+      ],
+      messages: [{ role: "user", content: "produce JSON" }],
+    });
+    assert.equal(env.ok, true);
+    assert.equal(env.parsed?.weekOf, "2026-W19");
+    assert.equal(env.cache_read_tokens, 60);
+    // Headers right
+    assert.equal(capturedHeaders["x-api-key"], "test-stub");
+    assert.equal(capturedHeaders["anthropic-version"], "2023-06-01");
+    // Prefilled "{" assistant turn
+    const lastMsg = capturedBody.messages[capturedBody.messages.length - 1];
+    assert.equal(lastMsg.role, "assistant");
+    assert.equal(lastMsg.content, "{");
+    // System block carries cache_control on the static block, not the dynamic one
+    assert.equal(capturedBody.system[0].cache_control?.type, "ephemeral");
+    assert.equal(capturedBody.system[1].cache_control, undefined);
+  } finally {
+    globalThis.fetch = origFetch;
+    if (orig != null) process.env.ANTHROPIC_API_KEY = orig; else delete process.env.ANTHROPIC_API_KEY;
+  }
+});
+
+// ---------- G5: OpenAI strict json_schema mode driven from node.schema ----------
+
+test("openai.chat: uses strict json_schema mode when jsonSchema is provided", async () => {
+  const origFetch = globalThis.fetch;
+  let capturedBody = null;
+  globalThis.fetch = async (url, init) => {
+    capturedBody = JSON.parse(init.body);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: '{"x":1}' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 3 },
+      }),
+    };
+  };
+  const orig = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test-stub";
+  try {
+    const { chat: och } = await import("../lib/providers/openai.mjs");
+    const env = await och({
+      model: "gpt-5-mini",
+      system: "sys",
+      messages: [{ role: "user", content: "u" }],
+      jsonSchema: { type: "object", properties: { x: { type: "number" } }, required: ["x"], additionalProperties: false },
+      jsonSchemaName: "test_output",
+    });
+    assert.equal(env.ok, true);
+    assert.equal(env.parsed?.x, 1);
+    assert.equal(capturedBody.response_format.type, "json_schema");
+    assert.equal(capturedBody.response_format.json_schema.strict, true);
+    assert.equal(capturedBody.response_format.json_schema.name, "test_output");
+    assert.deepEqual(capturedBody.response_format.json_schema.schema.required, ["x"]);
+  } finally {
+    globalThis.fetch = origFetch;
+    if (orig != null) process.env.OPENAI_API_KEY = orig; else delete process.env.OPENAI_API_KEY;
+  }
+});
+
+// ---------- G6: cascade extends through Anthropic and OpenAI when prior cloud lanes fail ----------
+
+test("runChiefOfStaff: cascade extends to anthropic + openai when groq fails", async () => {
+  const mod = await import("../lib/cos-runner.mjs");
+
+  // All 3 cloud keys present so all cloud lanes are eligible
+  const origs = {
+    GROQ_API_KEY: process.env.GROQ_API_KEY,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  };
+  process.env.GROQ_API_KEY = "x";
+  process.env.ANTHROPIC_API_KEY = "x";
+  process.env.OPENAI_API_KEY = "x";
+
+  const FAKE_JSON = '{"weekOf":"2026-W19","fixedEvents":[],"flexibleEvents":[],"baseline":{"deepWorkHours":0,"adminHours":0,"contextSwitches":0,"openLoopRisk":"low"},"notes":[],"topThree":[],"blocks":[],"decisions":[],"items":[],"missingOwners":[],"risks":[]}';
+  const seenLanes = new Set();
+  setChatImpl(async (opts) => {
+    if (opts.messages?.[0]?.content?.includes('Return {"ok":true}')) {
+      return { ok: true, text: '{"ok":true}', parsed: { ok: true }, raw: null, tokens_in: 1, tokens_out: 1, provider: opts.provider, model: opts.model };
+    }
+    if (opts.provider === "ollama" || opts.provider === "groq") {
+      return { ok: false, error: `${opts.provider} simulated failure`, retryable: true, provider: opts.provider, model: opts.model, reason: FAILURE_REASONS.HTTP };
+    }
+    if (opts.provider === "anthropic") {
+      seenLanes.add("anthropic");
+      return { ok: true, text: FAKE_JSON, parsed: JSON.parse(FAKE_JSON), raw: null, tokens_in: 100, tokens_out: 50, cache_read_tokens: 50, cache_write_tokens: 0, provider: "anthropic", model: opts.model };
+    }
+    if (opts.provider === "openai") {
+      seenLanes.add("openai");
+      return { ok: true, text: FAKE_JSON, parsed: JSON.parse(FAKE_JSON), raw: null, provider: "openai", model: opts.model };
+    }
+    return { ok: false, error: "no", retryable: false, provider: opts.provider, model: opts.model, reason: "unknown" };
+  });
+
+  const dir = await mkdtemp(join(tmpdir(), "cos-cloud-"));
+  try {
+    const { transcript } = await mod.runChiefOfStaff({
+      schedule: '{"weekOf":"2026-W19","events":[]}',
+      goals: "test",
+      allowCloud: "on-failure",
+      onEvent: () => {},
+      runDir: dir,
+    });
+    // All nodes should land on anthropic (the next cloud lane after groq fails)
+    for (const [, n] of Object.entries(transcript.nodes)) {
+      assert.equal(n.provider, "anthropic", `${n.name} should have escalated to anthropic`);
+      assert.equal(n.lane, "cloud-secondary");
+    }
+    assert.ok(seenLanes.has("anthropic"));
+    // Verify telemetry has cache_read_tokens recorded
+    const tel = (await readFile(join(dir, "telemetry.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
+    const anyCacheRead = tel.find((r) => r.cache_read_tokens === 50);
+    assert.ok(anyCacheRead, "expected at least one telemetry row with cache_read_tokens");
+  } finally {
+    setChatImpl(null);
+    for (const [k, v] of Object.entries(origs)) {
+      if (v != null) process.env[k] = v; else delete process.env[k];
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------- G7: feedback-loop reads prior learning-ledger.json ----------
+
+test("runChiefOfStaff: loads ≤2 promoted lessons into triage + time_block_plan only", async () => {
+  const mod = await import("../lib/cos-runner.mjs");
+  const { writeFile, mkdir } = await import("node:fs/promises");
+
+  // Set up a parent dir with a prior run + ledger and a fresh runDir.
+  const parent = await mkdtemp(join(tmpdir(), "cos-ledger-"));
+  const priorRun = join(parent, "prior-run");
+  await mkdir(priorRun, { recursive: true });
+  await writeFile(
+    join(priorRun, "learning-ledger.json"),
+    JSON.stringify({
+      promoted: [
+        { lesson: "Always batch admin into Friday afternoons" },
+        { lesson: "Protect 9-11am for deep work" },
+        { lesson: "Third lesson — should NOT be loaded (limit 2)" },
+      ],
+    }),
+  );
+  const runDir = join(parent, "current-run");
+  await mkdir(runDir, { recursive: true });
+
+  const seen = {}; // node key -> system text seen by chat()
+  setChatImpl(async (opts) => {
+    if (opts.messages?.[0]?.content?.includes('Return {"ok":true}')) {
+      return { ok: true, text: '{"ok":true}', parsed: { ok: true }, raw: null, provider: opts.provider, model: opts.model };
+    }
+    // Concatenate system blocks for inspection
+    const sys = Array.isArray(opts.system) ? opts.system.map((b) => b.text).join("|") : (opts.system ?? "");
+    // Identify node by the unique instruction text
+    let key = "?";
+    const userMsg = opts.messages[0].content;
+    if (userMsg.includes("schedule-intake skill")) key = "intake";
+    else if (userMsg.includes("Priority Strategist")) key = "triage";
+    else if (userMsg.includes("Calendar Architect")) key = "time_block_plan";
+    else if (userMsg.includes("decision log")) key = "decision_log";
+    else if (userMsg.includes("Follow-up Operator")) key = "follow_up_plan";
+    else if (userMsg.includes("Honesty Auditor")) key = "operating_risks";
+    seen[key] = sys;
+    const FAKE = '{"weekOf":"2026-W19","fixedEvents":[],"flexibleEvents":[],"baseline":{"deepWorkHours":0,"adminHours":0,"contextSwitches":0,"openLoopRisk":"low"},"notes":[],"topThree":[],"blocks":[],"decisions":[],"items":[],"missingOwners":[],"risks":[]}';
+    return { ok: true, text: FAKE, parsed: JSON.parse(FAKE), raw: null, provider: opts.provider, model: opts.model };
+  });
+
+  try {
+    const { transcript } = await mod.runChiefOfStaff({
+      schedule: '{"weekOf":"2026-W19","events":[]}',
+      goals: "test",
+      allowCloud: "never",
+      onEvent: () => {},
+      runDir,
+    });
+    assert.equal(transcript.lessonsLoaded, 2, "should load exactly 2 promoted lessons (cap)");
+    // triage and time_block_plan see the lessons; intake/decision_log/follow_up_plan/operating_risks must not.
+    assert.match(seen.triage, /Promoted lessons/);
+    assert.match(seen.time_block_plan, /Promoted lessons/);
+    assert.doesNotMatch(seen.intake, /Promoted lessons/);
+    assert.doesNotMatch(seen.decision_log, /Promoted lessons/);
+    assert.doesNotMatch(seen.follow_up_plan, /Promoted lessons/);
+    assert.doesNotMatch(seen.operating_risks, /Promoted lessons/);
+    // Third lesson must not appear in any system text
+    for (const k of Object.keys(seen)) {
+      assert.doesNotMatch(seen[k], /Third lesson/, `${k} contains the over-limit lesson`);
+    }
+  } finally {
+    setChatImpl(null);
+    await rm(parent, { recursive: true, force: true });
   }
 });
 
