@@ -19,5 +19,6 @@
   },
   "devDependencies": {
     "v0-sdk": "^0.16.4"
-  }
+  },
+  "license": "Apache-2.0"
 }
