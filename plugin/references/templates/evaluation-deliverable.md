@@ -22,7 +22,7 @@ Order by severity first, then by leverage (cheap-to-fix big-impact items above e
 
 ## 3. Missing or Weak Primitives
 
-Which harness primitives are absent or under-specified. Use the methodology topic vocabulary:
+Which harness primitives are absent or under-specified. Use the harness component vocabulary:
 
 | Primitive | State | Notes |
 |---|---|---|
@@ -71,4 +71,4 @@ Items surfaced during evaluation that are real issues but outside this engagemen
 
 ---
 
-*Template · derived from `methodology/09-evaluation-and-improvement-playbook.md` output contract*
+*Template · Agent Builder original evaluation output contract*

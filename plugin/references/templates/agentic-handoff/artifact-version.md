@@ -20,4 +20,4 @@ open_questions:
 confidence: "low | medium | high"
 ```
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Artifact versioning template").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Artifact versioning template").

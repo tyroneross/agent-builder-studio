@@ -1,13 +1,13 @@
 {
   "name": "agent-builder",
   "version": "0.3.0",
-  "description": "Design and evaluate agentic harnesses with playbooks and an architecture catalog",
+  "description": "Design and evaluate agentic harnesses with research synthesis, prompt contracts, and an architecture catalog",
   "author": {
     "name": "Tyrone Ross"
   },
   "homepage": "https://github.com/tyroneross/RossLabs-AI-Toolkit/tree/main/skills/agent-builder",
   "repository": "https://github.com/tyroneross/RossLabs-AI-Toolkit",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "agent",
     "harness",
@@ -29,8 +29,8 @@
   "skills": "./",
   "interface": {
     "displayName": "Agent Builder",
-    "shortDescription": "Design and evaluate agentic harnesses with playbooks and an architecture catalog",
-    "longDescription": "Cross-LLM skill for designing, evaluating, and improving agentic harnesses. Methodology playbooks (how to decide) plus an empirical catalog (what exists) covering architectures, frameworks, memory substrates, lab patterns, and local/open-source model agents.",
+    "shortDescription": "Design and evaluate agentic harnesses with research synthesis, prompt contracts, and an architecture catalog",
+    "longDescription": "Cross-LLM skill for designing, evaluating, and improving agentic harnesses. Agent Builder research synthesis, reusable templates, Prompt Builder prompt contracts, and an empirical catalog covering architectures, frameworks, memory substrates, lab patterns, and local/open-source model agents.",
     "developerName": "Ross Labs",
     "category": "Coding",
     "capabilities": [

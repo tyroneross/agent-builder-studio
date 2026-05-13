@@ -23,4 +23,4 @@ spec_lint:
 - Negative-phrased items (e.g., `unresolved_low_reversibility_decisions`) pass when `false`. Keep the polarity consistent with the field name to make the YAML readable at a glance.
 - Add project-specific lint items as separate fields. Do not modify or remove the core items — they are the baseline.
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Spec lint checklist").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Spec lint checklist").

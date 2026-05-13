@@ -1,6 +1,6 @@
 # Agentic-Handoff Templates
 
-Reusable schemas for product-development agent systems — the wire format between agents, the contracts they sign, the artifacts they version, and the gates that govern them. Pulled from two research addenda (Perplexity, ChatGPT) and reconciled into a single canonical set. See `methodology/13-agentic-product-dev-synthesis.md` for how to apply them.
+Reusable schemas for product-development agent systems — the wire format between agents, the contracts they sign, the artifacts they version, and the gates that govern them. Synthesized from Agent Builder research notes covering Perplexity and ChatGPT addenda, then reconciled into a single canonical set. See `methodology/13-agentic-product-dev-synthesis.md` for how to apply them.
 
 ## Index
 
@@ -24,7 +24,7 @@ Reusable schemas for product-development agent systems — the wire format betwe
 
 ## Conventions
 
-- Every template carries a **Source** line at the bottom citing the originating research addendum.
+- Every template carries a **Reference** line at the bottom citing the relevant research addendum.
 - Templates are reusable schemas, not the artifacts they produce. The 14-file handoff folder described in `methodology/12-agentic-systems-handoff-addendum.md` is the *output* a product-development agent system generates; these templates are the building blocks it uses.
 - Templates do not duplicate prose from the addenda or from `methodology/13`. When background or rationale matters, the template links to the methodology file rather than repeating it.
 - When two addenda offered competing shapes for the same concept (tool contract, agent registry), the canonical merge lives here and the rationale lives in `methodology/13` under "Open contradictions and how this synthesis resolves them."

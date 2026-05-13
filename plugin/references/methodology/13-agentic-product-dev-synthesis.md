@@ -1,6 +1,6 @@
 # Agentic Product Development — Synthesis
 
-> **What this file is for.** Two research addenda (Perplexity, ChatGPT) extend agent-builder methodology with material specific to *product-development agent systems* — agent networks that take sparse human input and produce a buildable spec for a coding agent. This file synthesizes the two into one methodology and points at the canonical templates and the existing methodology/catalog files. It does not duplicate the addenda; full template bodies live in `references/templates/agentic-handoff/` and the source addenda are preserved at `~/dev/research/topics/product-dev/`.
+> **What this file is for.** Two research addenda (Perplexity, ChatGPT) extend Agent Builder's catalog and template set with material specific to *product-development agent systems* -- agent networks that take sparse human input and produce a buildable spec for a coding agent. This file synthesizes the two into one Agent Builder-owned reference and points at the canonical templates, prompt contracts, catalog files, and companion synthesis file. It does not duplicate the addenda; full template bodies live in `references/templates/agentic-handoff/` and the source addenda are preserved at `~/dev/research/topics/product-dev/`.
 >
 > **Companion files.**
 > - `12-agentic-systems-handoff-addendum.md` (Perplexity-derived) — operating-model and 14-file handoff folder.
@@ -19,14 +19,14 @@
 - Ask-before policy
 - Confidence scoring
 - Evaluation gates specific to agent systems
-- How this extends the existing methodology files
+- How this maps onto Agent Builder surfaces
 - Implementation roadmap
 - Operational metrics and review thresholds
 - Open contradictions and how this synthesis resolves them
 
 ## Why product-development agent systems need their own methodology
 
-Agent-builder's existing methodology (files 01–11) and catalog (files 01–06) cover **the harness layer for any agent**: tools, permissions, state, memory, evals, observability, multi-agent shape, framework selection. That methodology is product-shape agnostic.
+Agent Builder's catalog, templates, prompt contracts, and generated artifacts cover **the harness layer for any agent**: tools, permissions, state, memory, evals, observability, multi-agent shape, framework selection, and output contracts. Those surfaces are product-shape agnostic.
 
 Product-development agent systems are a specific shape worth calling out: an agent network whose job is to convert sparse human input into a buildable specification for a coding agent. ProductPilot is the working name. The 14-file handoff folder in file 12 is the *output* of that system — not the system itself.
 
@@ -42,7 +42,7 @@ Three things make product-development agent systems different:
 
 For product development, this means: **deterministic workflow gates for intake, spec creation, review, build, and evaluation; agent autonomy only inside bounded sub-tasks** (drafting a section, summarizing intake, generating tests for an approved requirement).
 
-This sits on top of methodology/02 (`Common Harness Shapes`) and methodology/06 (`Single-Agent Default`). Those files said "prefer one agent with tools." This synthesis says: **once a single agent is insufficient for a product-development job, the next default is workflow-governed multi-agent — not free-form orchestrator-worker.** Workflow gates carry the safety load; agents do the drafting.
+This sits on top of the catalog's single-agent default and framework-selection posture. Agent Builder should prefer one agent with tools until the product-development job needs specialist context, independent review, or separate decision boundaries. Once a single agent is insufficient, the next default is **workflow-governed multi-agent -- not free-form orchestrator-worker**. Workflow gates carry the safety load; agents do the drafting.
 
 ## Default architecture: triage + specialists + reviewers
 
@@ -187,7 +187,7 @@ The confidence score is not a substitute for the ask-before list. Anything in th
 
 ## Evaluation gates specific to agent systems
 
-Methodology/09 covers harness evaluation in general. Product-development agent systems need three additional evaluation gates — they sit on top of, not in place of, the existing eval playbook:
+The evaluation deliverable template covers harness evaluation in general. Product-development agent systems need three additional evaluation gates -- they sit on top of, not in place of, the standard evaluation output contract:
 
 1. **Spec lint** ([template](../templates/agentic-handoff/spec-lint-checklist.md)). Mechanical pre-flight — required IDs, P0 stories with acceptance criteria, P0 requirements with tests, assumptions with confidence and validation paths, sensitive data classified, architecture decisions with rationale, non-goals defined, agent decision boundaries defined, no unresolved low-reversibility decisions. The Spec Review Agent runs this; failure is a hard block.
 2. **Traceability check** ([template](../templates/agentic-handoff/traceability-matrix.md)). Every P0 user need maps through story → requirement → UX flow → entity → test. The QA / Evaluation Agent owns the matrix. Missing columns are build blockers.
@@ -195,19 +195,20 @@ Methodology/09 covers harness evaluation in general. Product-development agent s
 
 These are run **before the coding agent gets the pack**, not after the build. Defects are roughly an order of magnitude cheaper to fix at the spec stage than at the build stage.
 
-## How this extends the existing methodology files
+## How this maps onto Agent Builder surfaces
 
-| Existing file | What this synthesis adds |
+| Agent Builder surface | What this synthesis adds |
 |---|---|
-| `02-harness-shapes-and-architecture.md` | Workflow-governed multi-agent as the next default after single-agent for product-development jobs. Triage + specialists + reviewers as a named pattern. |
-| `03-tools-execution-and-permissions.md` | T0–T5 permission tier table (canonical, from Perplexity). Tool-as-contract framing as a first-class governance object via [tool-contract template](../templates/agentic-handoff/tool-contract.md). |
-| `04-state-sessions-and-durability.md` | Artifact versioning as a durability pattern — every artifact has version, status, source inputs, change log, confidence ([template](../templates/agentic-handoff/artifact-version.md)). |
-| `05-context-memory-and-evaluation.md` | State-type taxonomy for product-development agents: run state, artifact state, assumption state, decision state, user preference state, case library, evaluation state. Memory rules: do not store sensitive data in long-term memory without explicit approval; treat memory as evidence with source/timestamp/owner/confidence. |
-| `06-agents-and-extensibility.md` | Role-card pattern as the agent contract. Triage + specialists + reviewers as the named multi-agent shape. Handoff envelope and agent output contract as the wire format between agents. |
-| `09-evaluation-and-improvement-playbook.md` | Spec lint, traceability matrix, and evaluation scorecard as agent-system-specific evaluation gates that run pre-build. Confidence scoring as the in-flight uncertainty manager. |
+| `references/catalog/01-architecture-taxonomy.md` | Workflow-governed multi-agent as the next default after single-agent for product-development jobs. Triage + specialists + reviewers as a named pattern. |
+| `references/catalog/02-harness-components.md` | T0-T5 permission tier table, tool-as-contract framing, state-type taxonomy, and role-card/handoff-envelope patterns as concrete harness components. |
+| `references/templates/agentic-handoff/tool-contract.md` | Tool-as-contract governance with permission tiers, approval gates, error handling, and examples. |
+| `references/templates/agentic-handoff/artifact-version.md` | Artifact versioning as a durability pattern: every artifact has version, status, source inputs, change log, and confidence. |
+| `references/templates/agentic-handoff/role-card.md` | Role-card pattern as the agent contract. Triage + specialists + reviewers as the named multi-agent shape. |
+| `references/templates/evaluation-deliverable.md` | Spec lint, traceability matrix, and evaluation scorecard as agent-system-specific evaluation gates that run pre-build. Confidence scoring as the in-flight uncertainty manager. |
 | `12-agentic-systems-handoff-addendum.md` | This file is the cross-source merge promised in file 12's TODO list. The 14-file handoff folder in file 12 stands; this file adds the *agent network* that produces it. |
+| Generated `prompts/prompt-builder-contract.md` | Prompt-specific roles, variables, constraints, scoring, and fixture expectations for generated agent/skill/plugin prompts. |
 
-Files 01, 07, 08, 10, 11, and the catalog files are not modified or extended by this synthesis. The principles, UX/observability, build playbook, examples, codex translation notes, and architecture taxonomy are all stable and apply unchanged.
+The base catalog, deliverable templates, examples, and generated artifact contracts apply unchanged. This synthesis adds product-development-specific agent-network guidance without changing those foundation surfaces.
 
 ## Implementation roadmap
 
@@ -263,7 +264,7 @@ Review thresholds:
 | Autonomy ladder: Perplexity v1 A0–A5 vs ChatGPT A0–A4 vs Perplexity v2 A0–A4 | Adopt A0–A4 as canonical (Perplexity v2 + ChatGPT now agree). Perplexity v1's A0–A5 is retained as a more granular variant with a bidirectional mapping (table above). Cross-source agreement is the deciding factor; the v1 review-time distinctions are recoverable inside A0–A4 with sub-level notes on the role card. |
 | Tool contract schema: Perplexity comprehensive vs ChatGPT lean | Merge into one canonical schema in `templates/agentic-handoff/tool-contract.md`. Perplexity's fields are canonical; ChatGPT's `tool_id` is an alias of `tool_id`. ChatGPT's `error_behavior` and `examples` fields are kept as additions. |
 | Agent registry: Perplexity full agent manifest vs ChatGPT per-agent registry | Both are needed. The system manifest is one document; the per-agent registry is a sibling block inside it. Both shapes ship in `templates/agentic-handoff/agent-manifest.md`. |
-| Handoff folder: 14 files (Perplexity) vs no specific count (ChatGPT) | The 14-file folder is the *output* of the agent system, owned by methodology/12. The agent system that produces it is owned by this file. Neither file claims the other's territory. |
+| Handoff folder: 14 files (Perplexity) vs no specific count (ChatGPT) | The 14-file folder is the *output* of the agent system, owned by `12-agentic-systems-handoff-addendum.md`. The agent system that produces it is owned by this file. Neither file claims the other's territory. |
 
 Anything not listed here was synthesized without a meaningful conflict — the two addenda were complementary by design, with Perplexity strongest on the artifact set and ChatGPT strongest on the agent network that produces it.
 

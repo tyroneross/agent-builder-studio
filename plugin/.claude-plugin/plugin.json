@@ -1,11 +1,11 @@
 {
   "name": "agent-builder",
   "version": "0.3.0",
-  "description": "Design and evaluate agentic harnesses with playbooks and an architecture catalog",
+  "description": "Design and evaluate agentic harnesses with research synthesis, prompt contracts, and an architecture catalog",
   "author": { "name": "Tyrone Ross" },
   "homepage": "https://github.com/tyroneross/RossLabs-AI-Toolkit/tree/main/skills/agent-builder",
   "repository": "https://github.com/tyroneross/RossLabs-AI-Toolkit",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "agent",
     "harness",

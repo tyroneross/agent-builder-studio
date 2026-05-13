@@ -75,4 +75,4 @@ tool_contract:
 - Tool calls should be traced with input, output, agent ID, artifact ID, and decision ID.
 - Tools should use least-privilege credentials and short-lived access where possible.
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-template-pack-addendum.md` (Perplexity addendum, "Tool contract template" and "Permission tiers"); `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Tool definition template" and "Tool safety rules").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-template-pack-addendum.md` (Perplexity addendum, "Tool contract template" and "Permission tiers"); `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Tool definition template" and "Tool safety rules").

@@ -133,10 +133,11 @@ Cross-LLM skill (Claude Code, Codex, others). Frontmatter `metadata` block above
 
 Most AI products do not break because the model is too weak. They break at the **harness layer**: unclear tool boundaries, missing approval policy, brittle state, sloppy context assembly, no evaluation loop, weak operator visibility. This skill turns those vague issues into concrete primitives, boundaries, phases, and checks — grounded in empirical evidence from production systems.
 
-Two complementary bodies of knowledge ship with this skill:
+Three complementary bodies of knowledge ship with this skill:
 
-- **`references/methodology/`** — *how to decide*. Prescriptive design and evaluation playbooks: principles, shapes, tools, state, context, extensibility, UX, output patterns.
+- **`references/methodology/`** — Agent Builder-owned research synthesis for agentic handoffs and product-development agent systems.
 - **`references/catalog/`** — *what exists to choose from*. Empirical inventory: architecture types I–V, six-component harness model, frameworks (LangGraph, CrewAI, Pydantic AI, smolagents, DSPy, AutoGen, Bedrock), memory substrates, lab patterns (Anthropic, OpenAI, Perplexity, Manus, Google, Devin, Cursor).
+- **Prompt Builder companion rules** — prompt contracts for generated agents, skills, plugins, eval judges, and tool-using prompts.
 
 ## Trigger Conditions
 
@@ -202,12 +203,12 @@ Choose one mode before reading reference files.
 ### `design`
 User is creating a new harness, planning a major rebuild, or asking for architecture, MVP shape, or implementation sequencing.
 
-Default reads: `references/methodology/01-principles-and-solo-dev-defaults.md`, `references/methodology/02-harness-shapes-and-architecture.md`, `references/methodology/08-design-and-build-playbook.md`, `references/catalog/01-architecture-taxonomy.md`, `references/templates/design-deliverable.md`. Add `references/catalog/06-local-and-open-source-models.md` when the target is a local/OSS model.
+Default reads: `references/catalog/01-architecture-taxonomy.md`, `references/catalog/02-harness-components.md`, `references/catalog/03-frameworks.md`, `references/templates/design-deliverable.md`. Add `references/catalog/06-local-and-open-source-models.md` when the target is a local/OSS model. Add `references/methodology/13-agentic-product-dev-synthesis.md` when the agent's job is to produce a buildable spec for a downstream coding agent.
 
 ### `evaluation`
 User has a harness and wants gaps, risks, missing primitives, UX upgrades, or architectural cleanup.
 
-Default reads: `references/methodology/01-principles-and-solo-dev-defaults.md`, `references/methodology/09-evaluation-and-improvement-playbook.md`, `references/catalog/02-harness-components.md`, `references/templates/evaluation-deliverable.md`.
+Default reads: `references/catalog/02-harness-components.md`, `references/catalog/05-lab-patterns.md`, `references/templates/evaluation-deliverable.md`. Add `references/methodology/12-agentic-systems-handoff-addendum.md` when handoff, autonomy, tool-permission, MCP/A2A, or operations-readiness details matter.
 
 ### `design + evaluation`
 User wants a target architecture and a way to verify it, compare it with an existing system, or define acceptance criteria before building.
@@ -223,7 +224,7 @@ Default reads: only the catalog file(s) relevant to the question. Cite the exact
 
 Pick the closest shape and state the assumption if ambiguous:
 
-| Shape (methodology) | Maps to Catalog Type |
+| Shape | Maps to Catalog Type |
 |---|---|
 | chat assistant | Type I (Augmented Assistant) |
 | workflow orchestrator | Type II (Workflow Automaton) or Type III (Orchestrated Team) |
@@ -238,24 +239,13 @@ If the target runs on a local/open-source model regardless of shape, also read `
 
 Read only the files the request actually needs. This file is the index — do not rely on reference-to-reference chains.
 
-### Methodology (how to decide)
-- `references/methodology/01-principles-and-solo-dev-defaults.md` — almost every request. Defines default decision posture.
-- `references/methodology/02-harness-shapes-and-architecture.md` — choosing system shape, boundaries, lifecycle, transports, deployment.
-- `references/methodology/03-tools-execution-and-permissions.md` — tool registries, tool calling, approval gates, sandboxes, trust tiers.
-- `references/methodology/04-state-sessions-and-durability.md` — sessions, resumability, retries, idempotency, approval waits, long-running work.
-- `references/methodology/05-context-memory-and-evaluation.md` — context windows, retrieval, memory, provenance, evals, replay tests, regression detection.
-- `references/methodology/06-agents-and-extensibility.md` — multi-agent design, plugins, hooks, skills, extension surfaces.
-- `references/methodology/07-ux-observability-and-operations.md` — streaming UX, health checks, logs, analytics, budgets, supportability.
-- `references/methodology/08-design-and-build-playbook.md` — build-ready plan from idea to implementation.
-- `references/methodology/09-evaluation-and-improvement-playbook.md` — findings, missing primitives, upgrade priorities, acceptance tests.
-- `references/methodology/10-example-requests-and-output-patterns.md` — prompt examples, response structure examples.
-- `references/methodology/11-codex-translation-notes.md` — adapting this skill for Codex or other LLM clients; cross-client portability notes.
+### Research Synthesis (how to decide for buildable agent outputs)
 - `references/methodology/12-agentic-systems-handoff-addendum.md` — Perplexity-derived methodology for agentic-system handoffs: autonomy boundaries, tool permission tiers (T0–T5), orchestration topology, memory taxonomy, the 14-file handoff folder, MCP/A2A guidance, OWASP/NIST safety taxonomy.
 - `references/methodology/13-agentic-product-dev-synthesis.md` — cross-source synthesis (Perplexity v2 + ChatGPT) for **product-development agent systems**: workflow-first principle, triage + specialists + reviewers default architecture, role-card pattern, canonical A0–A4 autonomy ladder (Perplexity v2 + ChatGPT; Perplexity v1's A0–A5 retained as a more granular variant), ask-before policy, confidence scoring, agent-system-specific eval gates (spec lint, traceability, scorecard). Read this when the agent's job is to produce a buildable spec for a downstream coding agent.
 
 ### Catalog (what exists)
 - `references/catalog/01-architecture-taxonomy.md` — Type I–V classification, adoption rates, 4 debates (single-vs-multi, frameworks-vs-raw, scaffolding-vs-minimal, augment-vs-automate), 10 verified stats, coordination patterns, architecture timeline.
-- `references/catalog/02-harness-components.md` — six-component harness model (prompt / tools / memory / context / error / observability) and its mapping to the methodology topic files.
+- `references/catalog/02-harness-components.md` — six-component harness model (prompt / tools / memory / context / error / observability) and its mapping to generated agent, skill, plugin, prompt, and evaluation artifacts.
 - `references/catalog/03-frameworks.md` — LangGraph, CrewAI, Pydantic AI, smolagents, DSPy, AutoGen, Bedrock AgentCore. Decision tree for framework selection.
 - `references/catalog/04-memory-substrates.md` — filesystem-as-memory, vector DB, in-context, COALA framework, Claude Code memory tiers, Voyager skill library, DSPy optimization formats, self-improvement patterns (MCTS, OPRO, PromptBreeder, Gödel Agent).
 - `references/catalog/05-lab-patterns.md` — production architecture patterns from Anthropic, OpenAI, Perplexity, LangChain DeepAgents, Manus, Google ADK, Microsoft AutoGen/Copilot, Meta Llama Stack, DeepSeek, Cohere, Devin, xAI Grok, Cursor, Windsurf.
@@ -264,7 +254,7 @@ Read only the files the request actually needs. This file is the index — do no
 ### Templates (output shapes)
 - `references/templates/design-deliverable.md` — use when producing a design output.
 - `references/templates/evaluation-deliverable.md` — use when producing an evaluation output.
-- `references/templates/agentic-handoff/` — 13 reusable schemas for product-development agent systems: role cards, handoff envelopes, agent output contracts, artifact versioning, tool contracts (with T0–T5 permission tiers), guardrails, assumption logs, traceability matrix, agent manifest, evaluation scorecard, spec-lint checklist, agent ADRs, human checkpoints. Index at `references/templates/agentic-handoff/README.md`. Use alongside `methodology/13-agentic-product-dev-synthesis.md`.
+- `references/templates/agentic-handoff/` — 15 reusable schemas for product-development agent systems: role cards, handoff envelopes, agent output contracts, artifact versioning, tool contracts (with T0–T5 permission tiers), guardrails, assumption logs, traceability matrix, agent manifest, evaluation scorecard, spec-lint checklist, agent ADRs, human checkpoints, system boundaries, and flow topologies. Index at `references/templates/agentic-handoff/README.md`. Use alongside `methodology/13-agentic-product-dev-synthesis.md`.
 
 ### Examples (calibration)
 - `examples/design-solo-pr-review-agent.md` — worked design deliverable for a solo-maintainer PR review agent.

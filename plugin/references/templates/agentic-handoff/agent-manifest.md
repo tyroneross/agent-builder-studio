@@ -83,4 +83,4 @@ agents:
 - Every guardrail entry must have a corresponding [guardrail definition](guardrail.md).
 - The manifest is the contract a coding agent reads before building. If something is in the manifest but not implemented, that is a defect; if something is implemented but not in the manifest, that is a governance gap.
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-template-pack-addendum.md` (Perplexity addendum, "Agent manifest template"); `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Agent registry").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-template-pack-addendum.md` (Perplexity addendum, "Agent manifest template"); `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Agent registry").

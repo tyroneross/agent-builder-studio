@@ -1,6 +1,6 @@
 {
   "name": "Agent Builder",
-  "description": "Design, evaluate, and improve agentic harnesses for developer tools, assistants, workflow runtimes, copilots, and AI-powered products — including agents built on local and open-source models. Combines a prescriptive methodology (how to decide) with an empirical catalog (what exists) covering architecture types, frameworks, memory substrates, production lab patterns, and local/open-source model guidance.",
+  "description": "Design, evaluate, and improve agentic harnesses for developer tools, assistants, workflow runtimes, copilots, and AI-powered products — including agents built on local and open-source models. Combines Agent Builder-owned research synthesis (how to decide), Prompt Builder contracts (how generated prompts stay reliable), and an empirical catalog (what exists) covering architecture types, frameworks, memory substrates, production lab patterns, and local/open-source model guidance.",
   "category": "skills",
   "author": {
     "name": "Tyrone Ross",
@@ -8,6 +8,7 @@
     "email": "tyrone@rosslabs.ai"
   },
   "version": "0.3.0",
+  "license": "Apache-2.0",
   "requires": {
     "services": [],
     "tools": ["AI client with reusable skills/prompts", "Ability to install the bundled references directory"]
@@ -29,15 +30,15 @@
   "difficulty": "advanced",
   "estimated_time": "15 minutes",
   "created": "2026-04-05",
-  "updated": "2026-04-05",
+  "updated": "2026-05-13",
   "attribution": {
-    "methodology_inspiration": {
+    "external_reference": {
       "skill": "n-agentic-harnesses",
       "author": "Jonathan Edwards",
       "author_github": "jonathanedwards",
       "repo_owner": "Nate B Jones",
       "repo": "https://github.com/NateBJones-Projects/OB1/tree/main/skills/n-agentic-harnesses",
-      "scope": "methodology reference files in plugin/references/methodology/ are copied from this skill"
+      "scope": "external inspiration/reference only; no source files from this skill are bundled"
     },
     "catalog_source": {
       "name": "RossLabs.ai agentic AI architectures research corpus",

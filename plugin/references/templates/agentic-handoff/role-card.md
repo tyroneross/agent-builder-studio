@@ -24,4 +24,4 @@ quality_bar:
 completion_signal: "<what marks this agent's work complete>"
 ```
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Role-card template").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Role-card template").

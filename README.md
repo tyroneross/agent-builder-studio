@@ -114,10 +114,11 @@ npm run agents:artifacts -- --doe --models qwen3:8b-q4_K_M,gemma4:26b,tinyllama:
 
 This writes actual `.pptx`, `.docx`, `.xlsx`, `.csv`, `.pdf`, `.html`, `.json`, and `.md` outputs under `agent-outputs/hypothetical-local-agent-suite/`. See `docs/real-output-artifact-report.md`.
 
-**Two bodies of knowledge, one skill:**
+**Three bodies of knowledge, one skill:**
 
-- **Methodology** — *how to decide*. Principles, shapes, tools, state, context, extensibility, UX, design playbook, evaluation playbook, output patterns, and cross-client portability notes. 11 topic files.
+- **Research synthesis** — *how to decide for agent-builder outputs*. Product-development agent handoff guidance, autonomy boundaries, tool permission tiers, workflow topology, memory taxonomy, and artifact contracts. 2 Agent Builder-authored synthesis files.
 - **Catalog** — *what exists*. Architecture taxonomy (Type I–V), six-component harness model, 7 framework deep dives (LangGraph / CrewAI / Pydantic AI / smolagents / DSPy / AutoGen / Bedrock), memory substrate inventory, 14 production lab patterns (Anthropic, OpenAI, Perplexity, Manus, Google, Devin, Cursor, Windsurf, and more), and dedicated guidance for agents built on local/open-source models (Ollama, llama.cpp, vLLM, Llama, Qwen, DeepSeek, Mistral). 6 catalog files.
+- **Prompt contracts** — *how generated prompts stay reliable*. Generated agents include Prompt Builder contracts grounded in the local Prompt Builder repo plus current OpenAI, Anthropic, Perplexity/Sonar, and MCP prompt guidance.
 
 Plus output templates and two fully worked examples. The single `plugin/SKILL.md` is cross-LLM — natural-language description triggers in Claude Code and other hosts; the `metadata` frontmatter block (priority, pathPatterns, importPatterns, bashPatterns, promptSignals) auto-activates on Codex.
 
@@ -147,11 +148,12 @@ agent-builder/
 │   ├── .codex-plugin/plugin.json       # Codex manifest
 │   ├── examples/                       # 2 worked deliverables
 │   └── references/
-│       ├── methodology/                # 11 files — how to decide
+│       ├── methodology/                # Agent Builder synthesis/addenda
 │       ├── catalog/                    # 6 files — what exists
 │       └── templates/                  # output shapes + nightly DOE contract
 ├── README.md                           # this file
-├── LICENSE
+├── LICENSE                             # Apache-2.0
+├── NOTICE                              # external reference attributions
 ├── metadata.json                       # skill catalog metadata
 ├── agents/openai.yaml                  # OpenAI-host UX wiring
 │
@@ -208,9 +210,9 @@ The skill defaults to lean, solo-maintainable, single-agent architecture and req
 
 ## Attribution
 
-- **Methodology** (`plugin/references/methodology/`) — the 11 topic files in this directory are copied from the [**`n-agentic-harnesses`**](https://github.com/NateBJones-Projects/OB1/tree/main/skills/n-agentic-harnesses) agent harness design skill authored by **Jonathan Edwards** (GitHub: [jonathanedwards](https://github.com/jonathanedwards)), published in the OB1 repository owned by **Nate B Jones** ([NateBJones-Projects](https://github.com/NateBJones-Projects)). Nothing else from OB1 was used.
+- **External reference** — Agent Builder's design was informed by the [**`n-agentic-harnesses`**](https://github.com/NateBJones-Projects/OB1/tree/main/skills/n-agentic-harnesses) agent harness design skill authored by **Jonathan Edwards** (GitHub: [jonathanedwards](https://github.com/jonathanedwards)) and published in the OB1 repository owned by **Nate B Jones** ([NateBJones-Projects](https://github.com/NateBJones-Projects)). No source files from that project are bundled in this repository.
 - **Catalog** (`plugin/references/catalog/`) — original research from the **RossLabs.ai agentic AI architectures corpus** (April 2026, 368 sources) authored by Tyrone Ross.
-- **SKILL.md, templates, examples, and README** — new compositions by Tyrone Ross bridging the two lineages.
+- **SKILL.md, synthesis files, templates, examples, app code, and README** — original compositions by Tyrone Ross / RossLabs.ai, with source links preserved for research traceability.
 
 ## Sources used for the catalog
 
@@ -218,7 +220,7 @@ Anthropic (Claude Code, multi-agent research system), OpenAI (Agents SDK, Deep R
 
 ## License
 
-MIT. Methodology files retain their original authorship attribution in frontmatter.
+Apache-2.0. See `NOTICE` for external reference attributions.
 
 ## Codex
 

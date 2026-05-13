@@ -24,4 +24,4 @@ flow_topology:
 
 Pick the simplest pattern that handles the work. Anthropic's guidance is to start with workflows (predefined code paths) and add agentic dynamism only when the work demonstrably needs it. Routers, orchestrator-worker, and evaluator-optimizer patterns each have specific failure modes — record `why_this_pattern` so a future maintainer can see whether the choice still fits.
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-template-pack-addendum-v2.md` (Perplexity v2 addendum, "Flow topology").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-template-pack-addendum-v2.md` (Perplexity v2 addendum, "Flow topology").

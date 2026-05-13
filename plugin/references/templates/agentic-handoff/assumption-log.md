@@ -14,4 +14,4 @@ owner: "human | agent"
 status: "open | validated | rejected | superseded"
 ```
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Assumption log template").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Assumption log template").

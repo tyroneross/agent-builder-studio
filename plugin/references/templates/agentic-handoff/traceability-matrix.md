@@ -15,4 +15,4 @@
 - The Spec Review Agent should refuse to mark spec lint as passing if any P0 row has missing columns.
 - The Coding Agent should not start build until every P0 row has at minimum a need, story, requirement, and test placeholder.
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Traceability matrix template").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Traceability matrix template").

@@ -1,0 +1,21 @@
+Agent Builder
+Copyright 2026 Tyrone Ross (RossLabs.ai)
+
+Agent Builder is licensed under the Apache License, Version 2.0.
+
+External reference material:
+
+- The project design was informed by the `n-agentic-harnesses` agent
+  harness design skill authored by Jonathan Edwards and published in the
+  OB1 repository owned by Nate B Jones:
+  https://github.com/NateBJones-Projects/OB1/tree/main/skills/n-agentic-harnesses
+
+No source files from `n-agentic-harnesses` are included in this repository.
+The link is retained as attribution to an external reference, not as bundled
+third-party code or documentation.
+
+The architecture catalog and generated prompt guidance cite public sources
+from OpenAI, Anthropic, Perplexity, LangChain/LangGraph, Google, Microsoft,
+NVIDIA, Model Context Protocol, and other AI research and enterprise sources.
+Those sources are referenced for research, compatibility, and best-practice
+context; their documentation is not bundled as source material.

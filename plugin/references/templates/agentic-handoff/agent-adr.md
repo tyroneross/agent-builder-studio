@@ -40,4 +40,4 @@ high | medium | low
 - The Architecture Agent owns ADR drafting; the Spec Review Agent or human owner approves.
 - Decisions with `Reversibility: low` are the ones worth investing AHP, weighted scoring, or morphological analysis on. Decisions with `Reversibility: high` should be made fast.
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Architecture Decision Record for agent systems").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Architecture Decision Record for agent systems").
