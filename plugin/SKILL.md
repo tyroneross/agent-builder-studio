@@ -164,6 +164,7 @@ Activate when any of the following hold:
 5. Translate ideas into implementation phases, success criteria, and failure tests.
 6. **When justifying multi-agent, cite empirical cost**: single agent ≈ 4× chat tokens, multi-agent ≈ 15× chat tokens, 70%+ of multi-agent failures are systemic (MAST), only 11% of orgs run production agentic systems (Deloitte 2025). See `references/catalog/01-architecture-taxonomy.md` for sources.
 7. **When the target is a local or open-source model**, apply the stricter local-model posture: start single-agent *always*, cull tools aggressively (Vercel 80% reduction pattern), compaction is non-negotiable (4K–32K context windows), evals are load-bearing not optional. See `references/catalog/06-local-and-open-source-models.md`.
+8. **When generating prompts, skills, or plugin instructions**, use Prompt Builder as the prompt-quality source of truth: caller contract, deployment modules, tier calibration, and type-specific rules. Apply the agent contract for tool-using/stateful prompts and the plugin contract for embedded skill/plugin prompts. Preserve current-source checks against OpenAI, Anthropic, Perplexity/Sonar, and MCP prompt-template docs before claiming a prompt pattern is current.
 
 ## Step 0 — Gather Context
 
@@ -181,6 +182,18 @@ For **evaluation** work, inspect the harness itself:
 - do not evaluate from vibes alone
 
 If the request is vague ("help me build an agent" or "is my harness any good"), ask one or two clarifying questions. Do not stall the conversation with an interview — get enough to pick a mode and start.
+
+## Step 0.5 — Prompt Builder Companion
+
+When the deliverable includes a system prompt, skill prompt, plugin instructions, tool-use prompt, eval judge, or prompt template:
+
+- Use the local Prompt Builder repo as the reusable prompt policy engine when available: `~/dev/git-folder/prompt-builder/skills/prompt-builder/`.
+- Read `references/caller-contract.md` for machine-callable output, `references/deployment-modules.md` for `agent` and `plugin` deployments, and `references/type-rules.md` for agent/tooling, RAG, evaluation, and data-pipeline prompts.
+- Include a prompt contract in generated outputs that names model tier, deployment, output consumer, risk level, state schema, tool registry, transition rules, termination, failure handling, examples, and validation checks.
+- For plugin or skill generation, require trigger conditions, context-loading rules, input schema, action spec, output schema, edge cases, examples, and validation.
+- For source-grounded or web-search prompts, apply Perplexity/Sonar-style rules: use accessible sources, state when information is unavailable, and rely on search/API result metadata for source URLs rather than asking the model to invent them.
+- For OpenAI reasoning models, keep instructions direct, use delimiters or section labels, specify success criteria, and avoid unnecessary chain-of-thought prompts.
+- For Anthropic/Claude prompts, define success criteria and evals first, then tune with explicit output formats, examples, XML-style structure, role boundaries, and literal scope instructions.
 
 ## Step 1 — Classify The Request
 

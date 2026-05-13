@@ -31,12 +31,14 @@ test("all bundled patterns generate the core artifact set", () => {
       "manifest.json",
       "memory/domain-playbook.md",
       "memory/learning-ledger.json",
+      "prompts/prompt-builder-contract.md",
       "sources.md",
       "system-prompt.md",
       "tools.json",
     ]);
     assert.match(result.files.find((file) => file.path === "agent.yaml").content, /permissions:/);
     assert.match(result.files.find((file) => file.path === "tools.json").content, /inputSchema/);
+    assert.match(result.files.find((file) => file.path === "prompts\/prompt-builder-contract.md").content, /Prompt Builder Invocation/);
   }
 });
 
@@ -70,6 +72,7 @@ test("earnings Webex structure preserves local draft and provenance contracts", 
   const manifest = JSON.parse(result.files.find((file) => file.path === "manifest.json").content);
   const tools = JSON.parse(result.files.find((file) => file.path === "tools.json").content);
   const prompt = result.files.find((file) => file.path === "system-prompt.md").content;
+  const promptContract = result.files.find((file) => file.path === "prompts/prompt-builder-contract.md").content;
   const readme = result.files.find((file) => file.path === "README.md").content;
   const sources = result.files.find((file) => file.path === "sources.md").content;
 
@@ -83,6 +86,8 @@ test("earnings Webex structure preserves local draft and provenance contracts", 
   assert.ok(manifest.outputs.includes("webex_paste_ready_update"));
   assert.ok(manifest.outputs.includes("quality_check"));
   assert.ok(!manifest.graph.nodes.some((node) => node.kind === "approval"));
+  assert.equal(manifest.prompting.source, "prompt-builder");
+  assert.equal(manifest.prompting.contractFile, "prompts/prompt-builder-contract.md");
   assert.ok(manifest.evals.some((item) => item.name === "no-webex-side-effect"));
   assert.ok(manifest.evals.some((item) => item.name === "source-provenance-required"));
 
@@ -91,8 +96,18 @@ test("earnings Webex structure preserves local draft and provenance contracts", 
   assert.match(prompt, /Local Model Profile/);
   assert.match(prompt, /qwen3:14b/);
   assert.match(prompt, /copy-paste-ready update/);
+  assert.match(promptContract, /STATE SCHEMA/i);
+  assert.match(promptContract, /TOOL REGISTRY/i);
+  assert.match(promptContract, /Skill And Plugin Prompt Requirements/);
+  assert.match(promptContract, /OpenAI/);
+  assert.match(promptContract, /Anthropic/);
+  assert.match(promptContract, /Perplexity/);
   assert.match(readme, /draft-only/);
   assert.match(readme, /does not send messages/);
+  assert.match(sources, /Prompt Builder Caller Contract/);
+  assert.match(sources, /OpenAI Prompt Guidance/);
+  assert.match(sources, /Anthropic Prompting Best Practices/);
+  assert.match(sources, /Perplexity Prompt Guide/);
   assert.match(sources, /Ollama Qwen3 Models/);
   assert.match(sources, /Ollama Gemma 3 Models/);
   assert.doesNotMatch(sources, /Webex Messaging MCP Server/);

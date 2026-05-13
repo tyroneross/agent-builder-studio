@@ -63,8 +63,12 @@ The build route writes local artifacts under `generated/agents/<slug>/`:
 - `agent.yaml`
 - `manifest.json`
 - `system-prompt.md`
+- `prompts/prompt-builder-contract.md`
 - `tools.json`
 - `evals/golden-tasks.json`
+- `evals/regression-scenarios.json`
+- `memory/domain-playbook.md`
+- `memory/learning-ledger.json`
 - `README.md`
 - `sources.md`
 
@@ -82,8 +86,9 @@ npm run agents:artifacts:doe
 
 The scan can run from the terminal or through the UI's **Agent structures** section. Current structures include Chief of Staff, PowerPoint Deck Builder, Writing, App Builder, Research Brief, Code Review, Earnings Webex Draft, and Data Analysis agents. The terminal scan reports graph shape, tool/eval counts, research-alignment checks, and optional sandbox e2e results.
 
-Each structure now includes an eval-gated domain-learning layer:
+Each structure now includes a prompt contract and an eval-gated domain-learning layer:
 
+- `prompts/prompt-builder-contract.md` for Prompt Builder invocation, agent prompt requirements, skill/plugin prompt requirements, and current OpenAI/Anthropic/Perplexity/MCP prompting source links.
 - `memory/domain-playbook.md` for accepted, rollback-aware lessons.
 - `memory/learning-ledger.json` for scenario results, candidate lessons, and accepted lessons.
 - `evals/regression-scenarios.json` for lesson regression checks.
