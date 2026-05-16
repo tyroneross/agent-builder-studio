@@ -52,19 +52,38 @@ Open `http://localhost:3028`.
 First-version workflow:
 
 1. Choose one of four common patterns: Solo Tool Agent, Approval Workflow, Research Orchestrator, or Evaluator Optimizer.
-2. Drag and connect nodes on the flow canvas.
-3. Edit node contracts: role, description, inputs, outputs, tools, and permission tier.
-4. Pick a target runtime and framework recommendation.
-5. Preview the generated YAML/JSON/files.
-6. Click **Build Agent**.
+2. Choose a pre-built Agent Structure, including generated agents saved from earlier builds.
+3. Add, select, remove, drag, connect, and reorder stages on the flow canvas.
+4. Expand the flow canvas in-page when the model is too large for the default workbench pane.
+5. Edit node contracts: role, description, inputs, outputs, tools, and permission tier.
+6. Pick a target runtime and framework recommendation.
+7. Preview the generated YAML/JSON/files.
+8. Click **Build Agent**.
 
-The build route writes local artifacts under `generated/agents/<slug>/`:
+The build route writes each installable generated agent package under the designated folder `generated/agents/<slug>/`. Treat that slug folder as the package root when copying the agent into another project or host-specific agent directory.
+After a successful build, the UI adds that generated package to the **Agent Structures** rail so it can be reused or edited. On page load, the app also scans `generated/agents/` and reloads any package with a valid manifest, tools file, and package manifest.
 
+Flow layout uses a deterministic systems-modeling convention: dependencies are ranked left-to-right by stage, parallel stages stack top-to-bottom, and stage lanes remain visible behind the nodes. This keeps the diagram close to discrete-event and agent-based modeling practice: the visual model shows agents/stages, directed transitions, process order, and handoff points before implementation detail.
+
+- `agent-package.json`
+- `package.json`
 - `agent.yaml`
 - `manifest.json`
+- `INSTALL.md`
 - `system-prompt.md`
 - `prompts/prompt-builder-contract.md`
+- `context/input-contract.md`
 - `tools.json`
+- `setup/requirements.json`
+- `setup/env.example`
+- `setup/install-checklist.md`
+- `setup/local-models.md`
+- `setup/vector-store.md`
+- `scripts/setup-check.mjs`
+- `runtime/README.md`
+- `runtime/adapter-contract.md`
+- `runtime/custom-loop-adapter.mjs`
+- `runtime/adapters/*.md`
 - `evals/golden-tasks.json`
 - `evals/regression-scenarios.json`
 - `memory/domain-playbook.md`
@@ -72,7 +91,16 @@ The build route writes local artifacts under `generated/agents/<slug>/`:
 - `README.md`
 - `sources.md`
 
-The build route is intentionally local-first and constrained: it does not accept arbitrary output paths, and generated artifacts are ignored by git.
+The build route is intentionally local-first and constrained: it does not accept arbitrary output paths, and generated artifacts are ignored by git. To install a generated agent elsewhere, copy the entire `generated/agents/<slug>/` folder as a unit; do not split the manifest, prompts, evals, tools, setup, runtime, context, and memory files. Each package includes `setup/requirements.json`, `setup/env.example`, local-model guidance, vector-store guidance, framework adapter notes, and `npm run setup:check` / `npm run runtime:check` so the target machine can verify API-key, local-LLM, vector-store, and runtime-loading prerequisites without relying on this repo.
+
+One-command package export:
+
+```bash
+npm run agent:export -- --slug=<slug> --target=/path/to/agents/<slug>
+npm run agent:export -- --slug=<slug> --json
+```
+
+The exporter copies the whole package and runs its setup check from the copied location. Use `--skip-check` only when exporting for a host that injects secrets later.
 
 Agent structure scan:
 
@@ -84,7 +112,17 @@ npm run agent:doe
 npm run agents:artifacts:doe
 ```
 
-The scan can run from the terminal or through the UI's **Agent structures** section. Current structures include Chief of Staff, PowerPoint Deck Builder, Writing, App Builder, Research Brief, Code Review, Earnings Webex Draft, and Data Analysis agents. The terminal scan reports graph shape, tool/eval counts, research-alignment checks, and optional sandbox e2e results.
+The scan can run from the terminal or through the UI's **Agent structures** section. Current structures include Chief of Staff, PowerPoint Deck Builder, Writing, App Builder, Research Brief, Code Review, Earnings Webex Draft, Investment Opportunity, and Data Analysis agents. The terminal scan reports graph shape, tool/eval counts, research-alignment checks, and optional sandbox e2e results.
+
+Investment review dashboard:
+
+```bash
+npm run serve
+```
+
+Open `http://localhost:3028/investments`. The dashboard shows the generated investment score, claim validation, upside case, bear case, and a human review panel. Saving writes a markdown recall note under `agent-outputs/investment-opportunity-agent/reviews/`.
+
+The investment dashboard also supports score-detail drilldowns, source links for deck-derived and external claims, editable scoring weights through sliders or plain text, external-source validation, and folder-level intake. Folder intake fingerprints selected files in the browser with relative path, size, modified time, and SHA-256 hash, extracts local text signals from text/PDF/deck-like files where possible, compares text and file fingerprints against the last saved log, and writes JSON plus markdown change logs under `agent-outputs/investment-opportunity-agent/folder-logs/`.
 
 Each structure now includes a prompt contract and an eval-gated domain-learning layer:
 

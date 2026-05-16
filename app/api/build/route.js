@@ -12,7 +12,9 @@ export async function POST(request) {
     return Response.json({
       ok: true,
       slug: result.slug,
+      outputRoot: result.outputRoot,
       outputDir: result.outputDir,
+      installableDir: result.installableDir,
       files: result.files.map((file) => file.path),
       warnings: result.warnings,
     });

@@ -139,6 +139,11 @@ button {
   width: 40px;
 }
 
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .icon-button:hover,
 .ghost-button:hover {
   background: var(--surface-muted);
@@ -296,9 +301,44 @@ button:focus-visible {
     #fbfcfa;
   background-size: 32px 32px;
   min-height: 590px;
-  overflow: hidden;
+  overflow: auto;
   position: relative;
   touch-action: none;
+}
+
+.flow-canvas.is-expanded {
+  min-height: 720px;
+}
+
+.stage-lane-layer {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.stage-lane {
+  border-left: 1px solid rgba(46, 111, 100, 0.18);
+  border-right: 1px solid rgba(46, 111, 100, 0.08);
+  bottom: 0;
+  position: absolute;
+  top: 0;
+}
+
+.stage-lane span {
+  background: rgba(251, 252, 250, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 800;
+  left: 8px;
+  letter-spacing: 0.08em;
+  padding: 4px 7px;
+  position: sticky;
+  text-transform: uppercase;
+  top: 8px;
 }
 
 .edge-layer {
@@ -307,6 +347,7 @@ button:focus-visible {
   pointer-events: none;
   position: absolute;
   width: 100%;
+  z-index: 2;
 }
 
 .edge-path {
@@ -335,8 +376,8 @@ marker path {
   position: absolute;
   text-align: left;
   user-select: none;
-  width: 172px;
-  z-index: 2;
+  width: 186px;
+  z-index: 3;
 }
 
 .flow-node:active {
@@ -393,6 +434,27 @@ marker path {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.flow-expanded {
+  background: rgba(31, 37, 32, 0.42);
+  inset: 0;
+  padding: 22px;
+  position: fixed;
+  z-index: 20;
+}
+
+.flow-expanded-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(31, 37, 32, 0.22);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: calc(100vh - 44px);
+  margin: 0 auto;
+  max-width: 1680px;
+  overflow: hidden;
 }
 
 .node-editor {
@@ -521,23 +583,492 @@ marker path {
   font-size: 12px;
 }
 
+.investment-shell {
+  margin: 0 auto;
+  max-width: 1360px;
+  min-height: 100vh;
+  padding: 22px;
+}
+
+.investment-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.investment-header h1 {
+  font-size: clamp(28px, 4vw, 46px);
+  line-height: 1.02;
+  margin: 0 0 8px;
+}
+
+.investment-header p {
+  color: var(--muted);
+  margin: 0;
+  max-width: 760px;
+}
+
+.investment-layout {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 380px;
+}
+
+.investment-main,
+.investment-review-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.investment-band,
+.investment-section,
+.investment-case,
+.investment-review-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.investment-band {
+  align-items: stretch;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 220px 1fr;
+  padding: 14px;
+}
+
+.investment-score,
+.investment-call {
+  align-items: center;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  min-height: 92px;
+  padding: 14px;
+}
+
+.investment-score {
+  color: #153f37;
+}
+
+.investment-score span,
+.investment-call span,
+.investment-card span {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.investment-score strong {
+  font-size: 42px;
+  line-height: 1;
+}
+
+.investment-call strong {
+  display: block;
+  font-size: 22px;
+  margin-top: 4px;
+}
+
+.investment-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.investment-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.investment-score-button {
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.investment-score-button:hover,
+.investment-score-button.is-active {
+  border-color: var(--accent);
+}
+
+.investment-score-button.is-active {
+  background: var(--accent-soft);
+}
+
+.investment-card strong {
+  font-size: 28px;
+}
+
+.investment-card meter {
+  height: 10px;
+  width: 100%;
+}
+
+.score-impact,
+.folder-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin-bottom: 12px;
+}
+
+.score-impact div,
+.folder-summary div {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  min-height: 78px;
+  padding: 12px;
+}
+
+.score-impact span,
+.score-impact small,
+.folder-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.score-impact strong,
+.folder-summary strong {
+  font-size: 22px;
+  overflow-wrap: anywhere;
+}
+
+.weight-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 320px);
+}
+
+.weight-sliders {
+  display: grid;
+  gap: 9px;
+}
+
+.weight-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(120px, 1fr) minmax(120px, 2fr) 48px;
+}
+
+.weight-row span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.weight-row strong {
+  font-size: 13px;
+  text-align: right;
+}
+
+.weight-row input {
+  margin: 0;
+  padding: 0;
+}
+
+.weight-text {
+  display: grid;
+  gap: 10px;
+}
+
+.button-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.folder-picker {
+  align-items: center;
+  background: var(--surface-muted);
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+  min-height: 82px;
+  padding: 14px;
+}
+
+.folder-picker input {
+  display: none;
+}
+
+.folder-picker span {
+  color: var(--accent-strong);
+  font-weight: 800;
+}
+
+.investment-section {
+  padding: 16px;
+}
+
+.section-heading-row {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.investment-section h2,
+.investment-case h2,
+.investment-review-panel h2 {
+  align-items: center;
+  display: flex;
+  font-size: 17px;
+  gap: 7px;
+  margin: 0 0 12px;
+}
+
+.investment-section .section-heading-row h2 {
+  margin: 0;
+}
+
+.investment-list {
+  color: var(--ink);
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.investment-recommendation {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--ink);
+  line-height: 1.45;
+  margin: 0 0 12px;
+  padding: 12px;
+}
+
+.investment-section h3 {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 14px 0 8px;
+}
+
+.investment-source-list {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.investment-source-list li {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+}
+
+.investment-source-list span {
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.investment-source-list strong {
+  font-size: 13px;
+}
+
+.investment-source-list small,
+.investment-source-list a {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.investment-source-list a {
+  color: var(--accent-strong);
+}
+
+.investment-table-wrap {
+  overflow-x: auto;
+}
+
+.investment-table {
+  border-collapse: collapse;
+  min-width: 720px;
+  width: 100%;
+}
+
+.investment-table th,
+.investment-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.investment-table th {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.investment-verdict {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.investment-verdict-supported {
+  background: #e1f3e7;
+  color: #1f5a35;
+}
+
+.investment-verdict-externally-supported {
+  background: #dff4ed;
+  color: #155944;
+}
+
+.investment-verdict-partially-supported,
+.investment-verdict-deck-only,
+.investment-verdict-needs-review {
+  background: #fff1d6;
+  color: #7a4a09;
+}
+
+.investment-verdict-not-found-in-sources,
+.investment-verdict-source-fetch-failed,
+.investment-verdict-no-external-source,
+.investment-verdict-refuted {
+  background: #f8dede;
+  color: #8c2b2b;
+}
+
+.folder-status {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.folder-status-added {
+  background: #e1f3e7;
+  color: #1f5a35;
+}
+
+.folder-status-changed {
+  background: #fff1d6;
+  color: #7a4a09;
+}
+
+.folder-status-removed {
+  background: #f8dede;
+  color: #8c2b2b;
+}
+
+.folder-status-unchanged {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.investment-table code {
+  background: var(--surface-muted);
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 2px 5px;
+}
+
+.investment-case-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.investment-case,
+.investment-review-panel {
+  padding: 16px;
+}
+
+.investment-case p {
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.investment-review-panel {
+  position: sticky;
+  top: 14px;
+}
+
+.investment-save {
+  width: 100%;
+}
+
+.investment-save-state {
+  color: var(--accent-strong);
+  font-size: 12px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.investment-save-state.is-error {
+  color: var(--danger);
+}
+
+.investment-markdown {
+  background: #1f2520;
+  color: #edf2e9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
 @media (max-width: 1160px) {
   .workspace,
-  .bottom-grid {
+  .bottom-grid,
+  .investment-layout {
     grid-template-columns: 1fr;
   }
 
   .canvas-panel {
     min-height: 560px;
   }
+
+  .investment-review-panel {
+    position: static;
+  }
 }
 
 @media (max-width: 720px) {
-  .shell {
+  .shell,
+  .investment-shell {
     padding: 10px;
   }
 
-  .topbar {
+  .topbar,
+  .investment-header {
     align-items: stretch;
     flex-direction: column;
   }
@@ -554,5 +1085,19 @@ marker path {
 
   .flow-canvas {
     min-height: 520px;
+  }
+
+  .investment-band,
+  .weight-grid,
+  .investment-case-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .weight-row {
+    grid-template-columns: 1fr;
+  }
+
+  .weight-row strong {
+    text-align: left;
   }
 }

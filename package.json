@@ -9,6 +9,7 @@
     "serve": "next build && next start --port 3028",
     "build": "next build",
     "agent:scan": "node scripts/agent-scan.mjs",
+    "agent:export": "node scripts/export-agent-package.mjs",
     "agent:doe": "node scripts/run-agent-doe.mjs",
     "agents:artifacts": "python3 scripts/run-artifact-agents.py",
     "agents:artifacts:doe": "python3 scripts/run-artifact-agents.py --doe",

@@ -270,6 +270,9 @@ def generate_suite(
     write_text(dashboard_path, dashboard_html(profile, dashboard_data))
     outputs.extend(relative_paths(root, [dashboard_path, dashboard_dir / "dashboard-data.json"]))
 
+    investment_dir = root / "investment-opportunity-agent" / "opportunity-review"
+    outputs.extend(relative_paths(root, write_investment_opportunity_artifacts(investment_dir, profile, experiment)))
+
     research_dir = root / "research-brief-agent" / "security-research"
     write_json(research_dir / "source-index.json", source_index(experiment))
     write_text(research_dir / "research-brief.md", research_brief(model_notes, experiment))
@@ -538,7 +541,9 @@ def validate_output_tree(root: Path) -> dict[str, Any]:
     for html_file in root.rglob("*.html"):
         max_score += 2
         content = html_file.read_text(encoding="utf-8")
-        if "<script" in content and "dashboardData" in content and "https://" not in content:
+        allows_external_sources = "investment-opportunity-agent" in str(html_file)
+        has_unsafe_external_link = "https://" in content and not allows_external_sources
+        if "<script" in content and "dashboardData" in content and not has_unsafe_external_link:
             score += 2
         else:
             errors.append(f"Dashboard HTML is missing local interactivity or includes external links: {html_file}")
@@ -634,6 +639,77 @@ def validate_output_tree(root: Path) -> dict[str, Any]:
                 errors.append(f"Claim table has source gaps: {claim_table_file}")
         except json.JSONDecodeError as error:
             errors.append(f"Invalid claim table {claim_table_file}: {error}")
+
+    for investment_scorecard_file in root.rglob("investment-scorecard.json"):
+        max_score += 10
+        try:
+            scorecard = json.loads(investment_scorecard_file.read_text(encoding="utf-8"))
+            if scorecard.get("schemaVersion") == "agent-builder.investment-scorecard.v1":
+                score += 2
+            if int(scorecard.get("overallScore", 0)) >= 1:
+                score += 2
+            else:
+                errors.append(f"Investment scorecard is missing an overall score: {investment_scorecard_file}")
+            dimensions = scorecard.get("dimensions", [])
+            if len(dimensions) >= 5:
+                score += 2
+            else:
+                errors.append(f"Investment scorecard has too few dimensions: {investment_scorecard_file}")
+            if scorecard.get("upsideCase") and scorecard.get("bearCase"):
+                score += 2
+            else:
+                errors.append(f"Investment scorecard lacks upside or bear case: {investment_scorecard_file}")
+            if "not investment advice" in scorecard.get("disclaimer", "").lower():
+                score += 2
+            else:
+                errors.append(f"Investment scorecard lacks diligence disclaimer: {investment_scorecard_file}")
+        except json.JSONDecodeError as error:
+            errors.append(f"Invalid investment scorecard {investment_scorecard_file}: {error}")
+
+    for investment_claim_file in root.rglob("investment-claim-validation.json"):
+        max_score += 10
+        try:
+            validation = json.loads(investment_claim_file.read_text(encoding="utf-8"))
+            claims = validation.get("claims", [])
+            verdicts = {claim.get("verdict") for claim in claims}
+            if len(claims) >= 4:
+                score += 2
+            else:
+                errors.append(f"Investment claim validation has too few claims: {investment_claim_file}")
+            if "supported" in verdicts and "refuted" in verdicts:
+                score += 2
+            else:
+                errors.append(f"Investment claim validation must include supported and refuted verdicts: {investment_claim_file}")
+            if "needs-review" in verdicts or "deck-only" in verdicts:
+                score += 2
+            else:
+                errors.append(f"Investment claim validation lacks uncertainty labels: {investment_claim_file}")
+            if all(claim.get("source") and claim.get("diligenceAction") for claim in claims):
+                score += 2
+            else:
+                errors.append(f"Investment claim validation lacks source or diligence action: {investment_claim_file}")
+            if validation.get("priorSessionId"):
+                score += 2
+            else:
+                errors.append(f"Investment claim validation lacks prior-session context: {investment_claim_file}")
+        except json.JSONDecodeError as error:
+            errors.append(f"Invalid investment claim validation {investment_claim_file}: {error}")
+
+    for notes_file in root.rglob("human-score-and-notes.md"):
+        max_score += 6
+        content = notes_file.read_text(encoding="utf-8").lower()
+        if "audience_scope: investments" in content and "retrieval_scope: investments" in content:
+            score += 2
+        else:
+            errors.append(f"Investment notes lack investment retrieval metadata: {notes_file}")
+        if "recommendation" in content and "human score" in content:
+            score += 2
+        else:
+            errors.append(f"Investment notes lack human score or recommendation: {notes_file}")
+        if "claim validation snapshot" in content:
+            score += 2
+        else:
+            errors.append(f"Investment notes lack claim validation snapshot: {notes_file}")
 
     for handoff_file in root.rglob("handoff-protocol.json"):
         max_score += 8
@@ -1998,6 +2074,479 @@ def dashboard_html(profile: Profile, payload: dict[str, Any]) -> str:
   </script>
 </body>
 </html>
+'''
+
+
+def investment_opportunity_payload() -> dict[str, Any]:
+    claims = [
+        {
+            "claim": "$1.8M+ ARR and 200+ paying firms",
+            "verdict": "deck-only",
+            "source": "Pitch deck claim from prior review; request billing export and customer list.",
+            "diligenceAction": "Verify ARR, logo count, customer concentration, and cohort dates.",
+            "sources": [
+                {"type": "deck", "label": "ARR and paid firms", "locator": "Pitch deck slide 8"},
+            ],
+        },
+        {
+            "claim": "300+ legal teams use the product",
+            "verdict": "supported",
+            "source": "Public site sanity check captured in prior session context.",
+            "diligenceAction": "Confirm whether this means active paying teams, pilots, or total workspaces.",
+            "sources": [
+                {"type": "external", "label": "Irys public usage claim", "locator": "Company website", "url": "https://www.irys.ai/"},
+            ],
+        },
+        {
+            "claim": "131% NRR and 97%+ retention",
+            "verdict": "needs-review",
+            "source": "Deck-level metric without public support in the prior review.",
+            "diligenceAction": "Ask for cohort table, churn definition, expansion revenue, and logo retention.",
+            "sources": [
+                {"type": "deck", "label": "Retention and NRR", "locator": "Pitch deck slide 8"},
+            ],
+        },
+        {
+            "claim": "Generic legal AI tools are not a competitive threat",
+            "verdict": "refuted",
+            "source": "Competitive market scan shows many legal AI incumbents and horizontal AI tools.",
+            "diligenceAction": "Underwrite moat through workflow depth, retention, integrations, and matter memory.",
+            "sources": [
+                {"type": "deck", "label": "Competitive differentiation claim", "locator": "Pitch deck slide 10"},
+                {"type": "external", "label": "Irys product surface", "locator": "Company website", "url": "https://www.irys.ai/"},
+            ],
+        },
+    ]
+    upside = (
+        "If retention, matter memory, Word workflow, and legal-team adoption are real, the company can become "
+        "a sticky AI operating layer for legal work with expanding seats and matter-level data advantages."
+    )
+    bear = (
+        "If ARR, retention, or NRR are deck-only and competitive tools compress differentiation, the opportunity "
+        "may behave like a crowded legal AI wrapper with expensive GTM and limited pricing power."
+    )
+    external_validation = {
+        "schemaVersion": "agent-builder.investment-research-validation.v1",
+        "summary": {"externallySupported": 1, "partiallySupported": 1, "notFound": 0, "fetchFailed": 0, "noExternalSource": 2},
+        "results": [
+            {
+                "claim": "300+ legal teams use the product",
+                "verdict": "externally-supported",
+                "sourceResults": [
+                    {
+                        "source": {"type": "external", "label": "Irys public usage claim", "locator": "Company website", "url": "https://www.irys.ai/"},
+                        "ok": True,
+                        "status": 200,
+                        "evidence": {"score": 78, "matchedTerms": ["300", "legal", "teams"], "missingTerms": []},
+                    }
+                ],
+            },
+            {
+                "claim": "Generic legal AI tools are not a competitive threat",
+                "verdict": "partially-supported",
+                "sourceResults": [
+                    {
+                        "source": {"type": "external", "label": "Irys product surface", "locator": "Company website", "url": "https://www.irys.ai/"},
+                        "ok": True,
+                        "status": 200,
+                        "evidence": {"score": 42, "matchedTerms": ["legal", "AI"], "missingTerms": ["generic", "competitive"]},
+                    }
+                ],
+            },
+        ],
+    }
+    deck_content_diff = {
+        "schemaVersion": "agent-builder.investment-deck-content-diff.v1",
+        "summary": {"changedDealFilesWithExtractedText": 1, "claimCandidateCount": 3},
+        "contentChanges": [
+            {
+                "file": "Irys Diligence/deck.pdf",
+                "addedCount": 2,
+                "removedCount": 1,
+                "added": ["ARR increased to $1.8M+", "NRR reported at 131%"],
+                "removed": ["ARR was listed as $1.2M in the prior version"],
+            }
+        ],
+        "claimCandidates": [
+            {"claim": "$1.8M+ ARR and 200+ paying firms", "file": "Irys Diligence/deck.pdf"},
+            {"claim": "131% NRR and 97%+ retention", "file": "Irys Diligence/deck.pdf"},
+            {"claim": "300+ legal teams use the product", "file": "Irys Diligence/deck.pdf"},
+        ],
+    }
+    return {
+        "schemaVersion": "agent-builder.investment-dashboard.v1",
+        "company": "Irys Legal AI",
+        "priorSessionId": "019e2ddb-801b-7ab0-a38c-138865ece4a7",
+        "agentScore": 86,
+        "recommendation": "Advance to diligence",
+        "preferenceFit": [
+            "AI-native workflow app with shipped revenue.",
+            "Legal-domain wedge fits prior preference for workflow depth over generic tools.",
+            "Needs evidence discipline because key retention and NRR claims remain deck-only.",
+        ],
+        "dimensions": [
+            {
+                "id": "preference-fit",
+                "label": "Preference fit",
+                "score": 92,
+                "weight": 30,
+                "rationale": "Matches AI workflow SaaS preference.",
+                "recommendation": "Advance because this matches the AI-native workflow pattern favored in prior reviews.",
+                "details": [
+                    "Workflow ownership inside a professional vertical is the strongest fit signal.",
+                    "Score should fall if the product is shallow usage or easy to replace with horizontal AI tools.",
+                ],
+                "sources": [
+                    {"type": "prior session", "label": "Prior investment preference read", "locator": "Session 019e2ddb-801b-7ab0-a38c-138865ece4a7"},
+                    {"type": "deck", "label": "Legal workflow positioning", "locator": "Pitch deck slide 2"},
+                ],
+            },
+            {
+                "id": "traction-quality",
+                "label": "Traction quality",
+                "score": 88,
+                "weight": 25,
+                "rationale": "ARR and paid-firm claims are strong but need primary backup.",
+                "recommendation": "Verify ARR, retention, and paid-customer definitions before relying on this as a top traction signal.",
+                "details": [
+                    "The score is high because ARR, paying-firm count, retention, and NRR are the right SaaS proof points.",
+                    "The score is capped because the most important numbers are still deck-derived until billing and cohort evidence are reviewed.",
+                ],
+                "sources": [
+                    {"type": "deck", "label": "$1.8M+ ARR, 200+ paying firms, 97%+ retention, 131% NRR", "locator": "Pitch deck slide 8"},
+                    {"type": "external", "label": "Irys public usage claim", "locator": "Company website", "url": "https://www.irys.ai/"},
+                ],
+            },
+            {
+                "id": "moat-durability",
+                "label": "Moat durability",
+                "score": 84,
+                "weight": 20,
+                "rationale": "Workflow depth and matter memory help, but competition is intense.",
+                "recommendation": "Underwrite moat through workflow depth, matter memory, integrations, and verified retention.",
+                "details": [
+                    "The moat is strongest if the product is embedded in drafting, review, and matter-memory workflows.",
+                    "The moat weakens if firms use it only for generic chat, search, or first-draft generation.",
+                ],
+                "sources": [
+                    {"type": "deck", "label": "Matter memory, Word workflow, citation verification", "locator": "Pitch deck slides 5-7"},
+                    {"type": "external", "label": "Irys product surface", "locator": "Company website", "url": "https://www.irys.ai/"},
+                ],
+            },
+            {
+                "id": "evidence-confidence",
+                "label": "Evidence confidence",
+                "score": 78,
+                "weight": 15,
+                "rationale": "Public support exists for usage, not all financial metrics.",
+                "recommendation": "Treat public validation as supportive but incomplete; request primary financial and customer evidence.",
+                "details": [
+                    "Public sources support usage and positioning, but not all financial metrics.",
+                    "Reconcile deck metrics against billing exports, cohort tables, and customer references.",
+                ],
+                "sources": [
+                    {"type": "deck", "label": "ARR, NRR, retention, customer count", "locator": "Pitch deck slide 8"},
+                    {"type": "external", "label": "Irys public site", "locator": "Company website", "url": "https://www.irys.ai/"},
+                ],
+            },
+            {
+                "id": "risk-adjusted-upside",
+                "label": "Risk-adjusted upside",
+                "score": 79,
+                "weight": 10,
+                "rationale": "Upside is attractive if retention and expansion claims hold.",
+                "recommendation": "Keep as advance-to-diligence, not invest-now, until financial proof is reviewed.",
+                "details": [
+                    "The upside is driven by category fit, workflow embedding, and expansion potential.",
+                    "The downside is valuation and competitive pressure if retention claims are overstated.",
+                ],
+                "sources": [
+                    {"type": "deck", "label": "Expansion and retention case", "locator": "Pitch deck slides 8-11"},
+                    {"type": "external", "label": "Irys public site", "locator": "Company website", "url": "https://www.irys.ai/"},
+                ],
+            },
+        ],
+        "claims": claims,
+        "externalValidation": external_validation,
+        "deckContentDiff": deck_content_diff,
+        "upsideCase": upside,
+        "bearCase": bear,
+        "humanReview": {
+            "score": 86,
+            "recommendation": "Advance to diligence",
+            "conviction": "Medium-high",
+            "notes": "Verify ARR, NRR, retention cohorts, customer concentration, and competitive overlap before committing capital.",
+        },
+        "sourceContext": [
+            "Prior session assessed CBANSV opportunities with LLM-wiki preference feedback.",
+            "Preference pattern: AI-native workflow apps with shipped revenue, hard-to-access infra or defense, and selective direct deals with distribution.",
+            "Caution pattern: healthcare and biotech need stronger validation or smaller exposure sizing.",
+        ],
+        "disclaimer": "Diligence support only; not investment advice.",
+    }
+
+
+def write_investment_opportunity_artifacts(
+    root: Path,
+    profile: Profile,
+    experiment: dict[str, Any] | None = None,
+) -> list[Path]:
+    payload = investment_opportunity_payload()
+    scorecard = {
+        "schemaVersion": "agent-builder.investment-scorecard.v1",
+        "company": payload["company"],
+        "overallScore": payload["agentScore"],
+        "recommendation": payload["recommendation"],
+        "dimensions": payload["dimensions"],
+        "preferenceFit": payload["preferenceFit"],
+        "upsideCase": payload["upsideCase"],
+        "bearCase": payload["bearCase"],
+        "disclaimer": payload["disclaimer"],
+    }
+    claim_validation = {
+        "schemaVersion": "agent-builder.investment-claim-validation.v1",
+        "company": payload["company"],
+        "priorSessionId": payload["priorSessionId"],
+        "claims": payload["claims"],
+    }
+    dashboard_path = root / "review-dashboard.html"
+    data_path = root / "dashboard-data.json"
+    scorecard_path = root / "investment-scorecard.json"
+    claims_path = root / "investment-claim-validation.json"
+    external_validation_path = root / "external-research-validation.json"
+    deck_diff_path = root / "deck-content-diff-log.json"
+    summary_path = root / "opportunity-summary.md"
+    notes_path = root / "human-score-and-notes.md"
+
+    write_json(data_path, payload)
+    write_json(scorecard_path, scorecard)
+    write_json(claims_path, claim_validation)
+    write_json(external_validation_path, payload["externalValidation"])
+    write_json(deck_diff_path, payload["deckContentDiff"])
+    write_text(dashboard_path, investment_dashboard_html(payload, profile))
+    write_text(summary_path, investment_summary_markdown(payload))
+    write_text(notes_path, investment_human_notes_markdown(payload))
+    return [dashboard_path, data_path, scorecard_path, claims_path, external_validation_path, deck_diff_path, summary_path, notes_path]
+
+
+def investment_dashboard_html(payload: dict[str, Any], profile: Profile) -> str:
+    cards = "\n".join(
+        f"<button class=\"card score-card\" type=\"button\" data-score-id=\"{html.escape(item['id'])}\"><span>{html.escape(item['label'])}</span><strong>{html.escape(str(item['score']))}</strong><small>{html.escape(item['rationale'])}</small></button>"
+        for item in payload["dimensions"][:profile.dashboard_widgets]
+    )
+    first_dimension = payload["dimensions"][0]
+    detail_sources = source_list_html(first_dimension["sources"])
+    detail_items = "\n".join(f"<li>{html.escape(item)}</li>" for item in first_dimension["details"])
+    claim_rows = "\n".join(
+        f"<tr><td>{html.escape(item['claim'])}</td><td><span class=\"verdict verdict-{html.escape(item['verdict'])}\">{html.escape(item['verdict'])}</span></td><td>{html.escape(item['source'])}</td><td>{source_list_html(item.get('sources', []))}</td><td>{html.escape(item['diligenceAction'])}</td></tr>"
+        for item in payload["claims"]
+    )
+    external_rows = "\n".join(
+        f"<tr><td>{html.escape(item['claim'])}</td><td><span class=\"verdict verdict-{html.escape(item['verdict'])}\">{html.escape(item['verdict'])}</span></td><td>{html.escape(', '.join(item['sourceResults'][0]['evidence'].get('matchedTerms', [])))}</td><td>{source_list_html([item['sourceResults'][0]['source']])}</td></tr>"
+        for item in payload["externalValidation"]["results"]
+    )
+    diff_rows = "\n".join(
+        f"<tr><td>{html.escape(item['file'])}</td><td>{html.escape(str(item['addedCount']))}</td><td>{html.escape(str(item['removedCount']))}</td><td>{html.escape('; '.join(item.get('added', [])[:2]))}</td></tr>"
+        for item in payload["deckContentDiff"]["contentChanges"]
+    )
+    return f'''<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(payload["company"])} Investment Review</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 0; background: #f7f8f5; color: #17201b; }}
+    main {{ max-width: 1180px; margin: 0 auto; padding: 28px; }}
+    h1 {{ font-size: 34px; margin: 0 0 8px; }}
+    h2 {{ font-size: 18px; margin: 0 0 10px; }}
+    .hero {{ display: grid; grid-template-columns: 180px 1fr; gap: 12px; margin-bottom: 14px; }}
+    .score, section {{ background: white; border: 1px solid #d8ddd4; border-radius: 8px; padding: 14px; }}
+    .score strong {{ display: block; font-size: 48px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 14px 0; }}
+    .card {{ background: white; border: 1px solid #d8ddd4; border-radius: 8px; color: inherit; cursor: pointer; padding: 14px; text-align: left; }}
+    .card.is-active, .card:hover {{ border-color: #2e6f64; }}
+    .card span, .card small {{ color: #5d695f; display: block; }}
+    .card strong {{ display: block; font-size: 28px; margin: 6px 0; }}
+    table {{ border-collapse: collapse; width: 100%; }}
+    th, td {{ border-bottom: 1px solid #e3e6df; padding: 9px; text-align: left; vertical-align: top; }}
+    th {{ color: #5d695f; font-size: 12px; }}
+    input, select, textarea {{ border: 1px solid #cfd6cc; border-radius: 7px; display: block; margin: 5px 0 10px; padding: 8px; width: 100%; }}
+    textarea {{ min-height: 90px; }}
+    button {{ background: #2e6f64; border: 0; border-radius: 8px; color: white; font-weight: 700; padding: 10px 14px; }}
+    .verdict {{ border-radius: 999px; display: inline-block; font-size: 12px; font-weight: 700; padding: 4px 8px; white-space: nowrap; }}
+    .verdict-supported {{ background: #e1f3e7; color: #1f5a35; }}
+    .verdict-externally-supported {{ background: #e1f3e7; color: #1f5a35; }}
+    .verdict-partially-supported {{ background: #fff1d6; color: #7a4a09; }}
+    .verdict-deck-only, .verdict-needs-review {{ background: #fff1d6; color: #7a4a09; }}
+    .verdict-refuted {{ background: #f8dede; color: #8c2b2b; }}
+    .cases {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 14px; }}
+    .source-list {{ display: grid; gap: 6px; list-style: none; margin: 8px 0 0; padding: 0; }}
+    .source-list li {{ background: #f4f6f1; border: 1px solid #e1e5dc; border-radius: 8px; display: grid; gap: 3px; padding: 8px; }}
+    .source-list span {{ color: #1f574e; font-size: 11px; font-weight: 700; text-transform: uppercase; }}
+    .source-list strong, .source-list small, .source-list a {{ display: block; font-size: 12px; overflow-wrap: anywhere; }}
+    .source-list a {{ color: #1f574e; }}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="hero">
+      <div class="score"><span>Agent score</span><strong>{payload["agentScore"]}</strong><small>{html.escape(payload["recommendation"])}</small></div>
+      <section><h1>{html.escape(payload["company"])}</h1><p>{html.escape(payload["disclaimer"])}</p><p>{html.escape(payload["preferenceFit"][0])}</p></section>
+    </div>
+    <div class="grid">{cards}</div>
+    <section id="scoreDetail">
+      <h2>{html.escape(first_dimension["label"])} Details</h2>
+      <p id="scoreRecommendation">{html.escape(first_dimension["recommendation"])}</p>
+      <ul id="scoreDetails">{detail_items}</ul>
+      <h3>Sources</h3>
+      <div id="scoreSources">{detail_sources}</div>
+    </section>
+    <section><h2>Claim Validation</h2><table><thead><tr><th>Claim</th><th>Verdict</th><th>Source note</th><th>Sources</th><th>Diligence action</th></tr></thead><tbody>{claim_rows}</tbody></table></section>
+    <section style="margin-top:14px"><h2>External Research Validation</h2><table><thead><tr><th>Claim</th><th>External verdict</th><th>Matched terms</th><th>Sources</th></tr></thead><tbody>{external_rows}</tbody></table></section>
+    <section style="margin-top:14px"><h2>Deck Content Diff</h2><table><thead><tr><th>File</th><th>Added signals</th><th>Removed signals</th><th>Sample additions</th></tr></thead><tbody>{diff_rows}</tbody></table></section>
+    <div class="cases">
+      <section><h2>Upside Case</h2><p>{html.escape(payload["upsideCase"])}</p></section>
+      <section><h2>Bear Case</h2><p>{html.escape(payload["bearCase"])}</p></section>
+    </div>
+    <section style="margin-top:14px">
+      <h2>My Review</h2>
+      <label>Human score<input id="humanScore" type="number" min="0" max="100" value="{payload["humanReview"]["score"]}"></label>
+      <label>Recommendation<select id="recommendation"><option>Advance to diligence</option><option>Watchlist</option><option>Pass</option><option>Invest</option></select></label>
+      <label>Notes<textarea id="notes">{html.escape(payload["humanReview"]["notes"])}</textarea></label>
+      <button id="saveLocal" type="button">Save markdown preview</button>
+      <textarea id="markdownOutput" aria-label="Markdown note"></textarea>
+    </section>
+  </main>
+  <script>
+    const dashboardData = {json.dumps(payload)};
+    function sourceList(sources) {{
+      return `<ul class="source-list">${{sources.map((source) => `<li><span>${{source.type}}</span><strong>${{source.label}}</strong><small>${{source.locator || ""}}</small>${{source.url ? `<a href="${{source.url}}" target="_blank" rel="noreferrer">${{source.url}}</a>` : ""}}</li>`).join("")}}</ul>`;
+    }}
+    function selectScore(id) {{
+      const item = dashboardData.dimensions.find((row) => row.id === id) || dashboardData.dimensions[0];
+      document.querySelectorAll(".score-card").forEach((card) => card.classList.toggle("is-active", card.dataset.scoreId === item.id));
+      document.querySelector("#scoreDetail h2").textContent = `${{item.label}} Details`;
+      document.getElementById("scoreRecommendation").textContent = item.recommendation;
+      document.getElementById("scoreDetails").innerHTML = item.details.map((detail) => `<li>${{detail}}</li>`).join("");
+      document.getElementById("scoreSources").innerHTML = sourceList(item.sources);
+    }}
+    function renderMarkdown() {{
+      const score = document.getElementById("humanScore").value;
+      const recommendation = document.getElementById("recommendation").value;
+      const notes = document.getElementById("notes").value;
+      const text = `# ${{dashboardData.company}} Investment Review\\n\\n## Recommendation\\n\\n- Agent score: ${{dashboardData.agentScore}}/100\\n- Human score: ${{score}}/100\\n- Recommendation: ${{recommendation}}\\n\\n## Notes\\n\\n${{notes}}\\n\\n## Claim Validation Snapshot\\n\\n${{dashboardData.claims.map((claim) => `- ${{claim.verdict}}: ${{claim.claim}}`).join("\\n")}}\\n`;
+      document.getElementById("markdownOutput").value = text;
+      localStorage.setItem("agent-builder-investment-review", text);
+    }}
+    document.getElementById("humanScore").addEventListener("input", renderMarkdown);
+    document.getElementById("recommendation").addEventListener("change", renderMarkdown);
+    document.getElementById("notes").addEventListener("input", renderMarkdown);
+    document.getElementById("saveLocal").addEventListener("click", renderMarkdown);
+    document.querySelectorAll(".score-card").forEach((card) => card.addEventListener("click", () => selectScore(card.dataset.scoreId)));
+    selectScore(dashboardData.dimensions[0].id);
+    renderMarkdown();
+    console.log("investment dashboard", dashboardData);
+  </script>
+</body>
+</html>
+'''
+
+
+def source_list_html(sources: list[dict[str, str]]) -> str:
+    if not sources:
+        return "<ul class=\"source-list\"><li><span>source</span><strong>No source supplied</strong></li></ul>"
+    rows = []
+    for source in sources:
+        link = ""
+        if source.get("url"):
+            escaped_url = html.escape(source["url"], quote=True)
+            link = f"<a href=\"{escaped_url}\" target=\"_blank\" rel=\"noreferrer\">{escaped_url}</a>"
+        rows.append(
+            "<li>"
+            f"<span>{html.escape(source.get('type', 'source'))}</span>"
+            f"<strong>{html.escape(source.get('label', 'Unnamed source'))}</strong>"
+            f"<small>{html.escape(source.get('locator', ''))}</small>"
+            f"{link}"
+            "</li>"
+        )
+    return f"<ul class=\"source-list\">{''.join(rows)}</ul>"
+
+
+def investment_summary_markdown(payload: dict[str, Any]) -> str:
+    return markdown_from_sections(f"{payload['company']} Opportunity Summary", [
+        ("Bottom Line", [f"{payload['recommendation']} at {payload['agentScore']}/100. {payload['disclaimer']}"]),
+        ("Preference Fit", payload["preferenceFit"]),
+        ("Upside Case", [payload["upsideCase"]]),
+        ("Bear Case", [payload["bearCase"]]),
+        ("Source Context", payload["sourceContext"]),
+    ])
+
+
+def investment_human_notes_markdown(payload: dict[str, Any]) -> str:
+    review = payload["humanReview"]
+    claims = [
+        f"{item['verdict']}: {item['claim']} ({item['source']})"
+        for item in payload["claims"]
+    ]
+    external_validation = [
+        f"{item['verdict']}: {item['claim']}"
+        for item in payload["externalValidation"]["results"]
+    ]
+    deck_diff = [
+        f"{item['file']}: {item['addedCount']} added signals, {item['removedCount']} removed signals"
+        for item in payload["deckContentDiff"]["contentChanges"]
+    ]
+    score_sources = []
+    for dimension in payload["dimensions"]:
+        score_sources.append(f"### {dimension['label']}")
+        for source in dimension.get("sources", []):
+            url = f" - {source['url']}" if source.get("url") else ""
+            score_sources.append(f"- {source.get('type', 'source')}: {source.get('label', 'Unnamed source')}, {source.get('locator', 'no locator')}{url}")
+    return f'''---
+schema: agent-builder.investment-review.v1
+company: {payload["company"]}
+prior_session_id: {payload["priorSessionId"]}
+audience_scope: investments
+retrieval_scope: investments
+---
+
+# {payload["company"]} Investment Review
+
+## Recommendation
+
+- Agent score: {payload["agentScore"]}/100
+- Human score: {review["score"]}/100
+- Recommendation: {review["recommendation"]}
+- Conviction: {review["conviction"]}
+
+## Notes
+
+{review["notes"]}
+
+## Upside Case
+
+{payload["upsideCase"]}
+
+## Bear Case
+
+{payload["bearCase"]}
+
+## Claim Validation Snapshot
+
+{chr(10).join(f"- {item}" for item in claims)}
+
+## External Research Validation
+
+{chr(10).join(f"- {item}" for item in external_validation)}
+
+## Deck Content Diff
+
+{chr(10).join(f"- {item}" for item in deck_diff)}
+
+## Score Detail Sources
+
+{chr(10).join(score_sources)}
 '''
 
 
