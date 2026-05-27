@@ -31,4 +31,4 @@ escalation_conditions:
 trace_id: "TRACE-123"
 ```
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Handoff envelope").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Handoff envelope").

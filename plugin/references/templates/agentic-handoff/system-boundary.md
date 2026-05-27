@@ -27,4 +27,4 @@ system_boundary:
 
 Use this block early — before tool contracts, before role cards, before the autonomy ladder is set. The boundary is what the rest of the handoff is bounded by.
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-template-pack-addendum-v2.md` (Perplexity v2 addendum, "System boundary").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-template-pack-addendum-v2.md` (Perplexity v2 addendum, "System boundary").

@@ -99,4 +99,4 @@ Do not recommend a framework if the user hasn't asked for one and raw SDK calls 
 
 ---
 
-*Template · derived from `methodology/08-design-and-build-playbook.md` deliverable format + `catalog/01` architecture selection*
+*Template · Agent Builder original deliverable format + `catalog/01` architecture selection*

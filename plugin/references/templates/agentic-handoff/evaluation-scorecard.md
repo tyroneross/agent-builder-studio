@@ -28,4 +28,4 @@
 - Record the scorer (human or agent ID) and timestamp with every scorecard.
 - Pair the scorecard with the [traceability matrix](traceability-matrix.md) — they answer different questions and are not substitutes for each other.
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Evaluation scorecard").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Evaluation scorecard").

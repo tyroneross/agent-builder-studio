@@ -27,6 +27,7 @@ The build API writes files under `generated/agents/<slug>/`:
 - `agent.yaml` — portable harness contract
 - `manifest.json` — normalized graph, runtime, permissions, memory, evals, and source references
 - `system-prompt.md` — starter system prompt from the graph
+- `prompts/prompt-builder-contract.md` — Prompt Builder invocation, agent prompt requirements, skill/plugin prompt requirements, and prompt-source references
 - `tools.json` — capability registry with permission tiers and input schemas
 - `evals/golden-tasks.json` — first regression suite
 - `README.md` — implementation runbook

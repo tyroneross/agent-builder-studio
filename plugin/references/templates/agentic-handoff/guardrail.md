@@ -36,4 +36,4 @@ escalation: "human approval required"
 
 Agent-level input and output guardrails do not automatically cover every tool pathway. In OpenAI's Agents SDK, tool guardrails apply to custom function tools but not to hosted tools, built-in execution tools, or handoff calls. Specify where each guardrail runs (before/after tool, before/after handoff, on input, on output) so coverage gaps are visible.
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Guardrail template" and "Risk control matrix").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Guardrail template" and "Risk control matrix").

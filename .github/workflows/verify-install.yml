@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: 2025-2026 Tyrone Ross, Jr <46267523+tyroneross@users.noreply.github.com>
+# SPDX-License-Identifier: Apache-2.0
+name: Verify @tyroneross/agent-builder install
+
+# Smoke-tests the consumer install path against GitHub Packages.
+# Chains after publish-npm.yml; also manually triggerable for any version.
+# Uses GITHUB_TOKEN (auto-granted packages:read), so no PAT required.
+
+on:
+  workflow_run:
+    workflows: ["Publish @tyroneross/agent-builder to GitHub Packages"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to verify (omit to use plugin/package.json)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version to verify
+        id: ver
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            V="${{ inputs.version }}"
+          else
+            V=$(node -p "require('./plugin/package.json').version")
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Verifying @tyroneross/agent-builder@$V"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@tyroneross"
+          always-auth: true
+
+      - name: Wait for GitHub Packages propagation
+        if: github.event_name == 'workflow_run'
+        run: sleep 45
+
+      - name: Sandbox install
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/verify && cd /tmp/verify
+          npm init -y >/dev/null
+          npm install "@tyroneross/agent-builder@${{ steps.ver.outputs.version }}"
+
+          INSTALLED=$(jq -r .version node_modules/@tyroneross/agent-builder/package.json)
+          if [ "$INSTALLED" != "${{ steps.ver.outputs.version }}" ]; then
+            echo "::error::Installed version ($INSTALLED) does not match requested (${{ steps.ver.outputs.version }})"
+            exit 1
+          fi
+
+          # Plugin companion content should ship: SKILL.md, both manifests,
+          # examples, references, and the companion README + metadata.
+          for required in SKILL.md README.md metadata.json .claude-plugin/plugin.json .codex-plugin/plugin.json examples references; do
+            if [ ! -e "node_modules/@tyroneross/agent-builder/$required" ]; then
+              echo "::error::Missing from installed package: $required"
+              exit 1
+            fi
+          done
+
+          FILE_COUNT=$(find node_modules/@tyroneross/agent-builder -type f | wc -l | tr -d ' ')
+          if [ "$FILE_COUNT" -lt 10 ]; then
+            echo "::error::Suspiciously small install — only $FILE_COUNT files"
+            exit 1
+          fi
+
+          echo "::notice::Verified @tyroneross/agent-builder@$INSTALLED — $FILE_COUNT files installed"

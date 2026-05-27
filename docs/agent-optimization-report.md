@@ -23,6 +23,7 @@ Generated agents now include:
 - `agent.yaml`
 - `manifest.json`
 - `system-prompt.md`
+- `prompts/prompt-builder-contract.md`
 - `tools.json`
 - `evals/golden-tasks.json`
 - `evals/regression-scenarios.json`

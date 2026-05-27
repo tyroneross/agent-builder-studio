@@ -20,12 +20,12 @@ The design is salvageable as-is. Recommended fixes are additive, not architectur
 ### Finding 1 — No agentic evaluation harness [High]
 **Evidence**: `./testing.py` (120 LOC) contains only unit/integration probes for individual components. No file matches `golden*`, `eval*`, or `replay*`. The report-critic (`./critic.py`) runs on a single output per session with a 4.0/5.0 threshold; it is not a regression harness.
 **Why it matters**: With 9 specialists and typical sessions running 30–80 tool calls, small per-step accuracy drops compound into large end-to-end failures that never get caught by a single-run threshold. Model swaps and prompt tweaks will silently regress over time.
-**Root cause**: Evaluation primitive (`catalog/02-harness-components.md § Observability` + `methodology/09-evaluation-and-improvement-playbook.md`) is missing.
+**Root cause**: Evaluation primitive (`catalog/02-harness-components.md § Observability` + `references/templates/evaluation-deliverable.md`) is missing.
 
 ### Finding 2 — Permission mode is global and coarse [High]
 **Evidence**: `agent.py: permission_mode="acceptEdits"` appears 4 times across the orchestrator and specialists. No trust tiers. No per-tool gating. All 13 custom tools fire freely once in the allowlist. Destructive tools (`write_report`, `record_memory`, `delete_thread`) sit in the same tier as read-only tools (`fetch_pdf`, `web_search`).
 **Why it matters**: When a specialist hallucinates a tool call with bad arguments, there's nothing to stop it. Fine for a solo research tool writing to your own filesystem; risky if this ever runs against shared infrastructure or writes to shared state.
-**Root cause**: Permission primitive (`methodology/03-tools-execution-and-permissions.md § Trust Tiers`) is missing the ladder.
+**Root cause**: Permission primitive (`catalog/02-harness-components.md § Tool Definitions`) is missing the ladder.
 
 ### Finding 3 — No explicit context compaction threshold [Medium]
 **Evidence**: `agent.py: build_scaffold()` injects memory at system prompt start (good — high-attention zone), but there is no 92%-capacity compaction heuristic, no message-pruning policy, and no summary checkpoint. Runs are bounded only by a `max_turns` budget.
@@ -35,12 +35,12 @@ The design is salvageable as-is. Recommended fixes are additive, not architectur
 ### Finding 4 — Observability is opt-in and unlabeled [Medium]
 **Evidence**: `tracing.py` wires LangSmith behind `LANGSMITH_TRACING=true`, disabled by default. No token/cost tracking. No per-run JSON metadata file. Stdout streaming and a `progress.md` are the only default audit trail.
 **Why it matters**: Most runs produce no auditable trace. When something goes wrong there is no retrospective diagnosis path beyond re-reading `progress.md`. For a 9-specialist orchestration that's dangerously thin.
-**Root cause**: Observability primitive (`methodology/07-ux-observability-and-operations.md`).
+**Root cause**: Observability primitive (`catalog/02-harness-components.md § Observability`).
 
 ### Finding 5 — Error policy is "fail fast, don't retry blindly" — stated, not mechanized [Low]
 **Evidence**: `CLAUDE.md` states the principle but there is no circuit breaker, no bounded-retry wrapper, and no graceful-degradation path when a specialist fails repeatedly. Tools return error blocks and the orchestrator decides — which puts decision quality on the model, not on the harness.
 **Why it matters**: Pathological loops (same specialist called 5× returning errors 5×) will burn budget silently. The state of the art for this is a drift-detector-as-control-plane pattern (see `catalog/06-local-and-open-source-models.md § Non-obvious insights`).
-**Root cause**: State/durability (`methodology/04-state-sessions-and-durability.md`).
+**Root cause**: Error-handling primitive (`catalog/02-harness-components.md § Error Handling`).
 
 ## 3. Missing or Weak Primitives
 

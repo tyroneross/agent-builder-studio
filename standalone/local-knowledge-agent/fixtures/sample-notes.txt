@@ -1,0 +1,6 @@
+Project Atlas review
+
+Riley will send the revised onboarding checklist by Friday.
+The team decided to keep the local-first retrieval workflow and add SQL search for exact source lookup.
+Open question: should large PDFs be pre-converted before ingest?
+The main risk is model latency when other apps are open on a 24GB MacBook Pro.

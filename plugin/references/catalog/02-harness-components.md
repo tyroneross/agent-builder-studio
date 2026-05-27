@@ -56,20 +56,20 @@ Max-retry with exponential backoff is the minimum baseline.
 
 ---
 
-## Reconciliation With Methodology Topic Files
+## Reconciliation With Agent Builder Outputs
 
-The methodology side of this skill splits harness work across seven topic files (`methodology/01-principles` through `07-ux-observability`). The six-component view above is a **different axis** on the same territory, not a competing taxonomy. Map them together when you need both vocabularies in one place:
+The six-component view above is the fastest checklist for design and evaluation work. Map each component to generated Agent Builder artifacts so the output remains actionable:
 
-| Component (this file) | Methodology topic file(s) |
+| Component (this file) | Agent Builder artifact(s) |
 |---|---|
-| 1. System Prompt Architecture | `01-principles-and-solo-dev-defaults.md`, `02-harness-shapes-and-architecture.md` |
-| 2. Tool Definitions | `03-tools-execution-and-permissions.md` |
-| 3. Memory | `05-context-memory-and-evaluation.md` + catalog `04-memory-substrates.md` |
-| 4. Context Window Management | `05-context-memory-and-evaluation.md` |
-| 5. Error Handling | `04-state-sessions-and-durability.md` |
-| 6. Observability | `07-ux-observability-and-operations.md` |
+| 1. System Prompt Architecture | `system-prompt.md`, `prompts/prompt-builder-contract.md` |
+| 2. Tool Definitions | `tools.json`, `manifest.json` |
+| 3. Memory | `memory/domain-playbook.md`, `memory/learning-ledger.json`, catalog `04-memory-substrates.md` |
+| 4. Context Window Management | `manifest.json`, `sources.md`, prompt contract context rules |
+| 5. Error Handling | `tools.json`, evals, prompt contract failure handling |
+| 6. Observability | evals, generated README, sandbox/DOE reports |
 
-Use the component view when talking to operators or SREs (they think in subsystems). Use the topic-file view when doing design/evaluation work (it's organized by decision order).
+Use the component view when talking to operators or SREs. Use the artifact view when turning an agent idea into files.
 
 ---
 

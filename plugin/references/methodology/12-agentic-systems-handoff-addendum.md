@@ -1,12 +1,12 @@
 # Agentic Systems Handoff Addendum
 
-> **Source:** Perplexity research, captured 2026-05-02. Companion to the LLM product-development template pack (research entry: `product-dev.llm-product-development-template-pack`). This addendum is specific to agentic systems — autonomy, tool permissions, orchestration topology, memory, handoffs, evaluation. Cross-saved at `~/dev/research/topics/product-dev/product-dev.agentic-systems-template-pack-addendum.md`.
+> **Reference:** Perplexity research, captured 2026-05-02. Companion to the LLM product-development template pack (research entry: `product-dev.llm-product-development-template-pack`). This addendum is specific to agentic systems — autonomy, tool permissions, orchestration topology, memory, handoffs, evaluation. Cross-saved at `~/dev/research/topics/product-dev/product-dev.agentic-systems-template-pack-addendum.md`.
 >
 > **See also:**
-> - `13-agentic-product-dev-synthesis.md` — the cross-source merge of this addendum with the ChatGPT addendum, plus mapping onto agent-builder methodology files 02, 03, 06, and 09.
+> - `13-agentic-product-dev-synthesis.md` — the cross-source merge of this addendum with the ChatGPT addendum, plus mapping onto Agent Builder's catalog, templates, prompt contracts, and generated artifacts.
 > - `~/dev/research/topics/product-dev/product-dev.agentic-systems-template-pack-addendum-v2.md` — **Perplexity v2 (supersedes this addendum's source)**: revised A0–A4 autonomy ladder, cross-source merge with ChatGPT, default agent role decomposition, staged implementation, operational thresholds, and the new `system_boundary` and `flow_topology` schemas.
 > - `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` — the ChatGPT-sourced companion addendum (multi-agent role decomposition, handoff envelope, autonomy levels, evaluation scorecard, operational metrics).
-> - `references/templates/agentic-handoff/` — 15 reusable schemas (role cards, handoff envelopes, tool contracts, guardrails, traceability matrix, agent manifest, eval scorecard, spec-lint, ADR, human checkpoints, system boundary, flow topology) extracted from both addenda.
+> - `references/templates/agentic-handoff/` — 15 reusable schemas (role cards, handoff envelopes, tool contracts, guardrails, traceability matrix, agent manifest, eval scorecard, spec-lint, ADR, human checkpoints, system boundary, flow topology) synthesized from the research addenda.
 
 ## Executive summary
 
@@ -534,5 +534,5 @@ The human should define the agent's purpose, boundaries, desired outcome, and ri
 ## Status — enhancement queue
 
 - ✅ ChatGPT cross-source merge: completed in `13-agentic-product-dev-synthesis.md` (2026-05-02).
-- ✅ Original synthesis mapping onto methodology files 02 / 03 / 06 / 09: completed in file 13 (see "How this extends the existing methodology files").
-- ✅ Reusable template suite under `plugin/references/templates/agentic-handoff/`: completed (13 templates + index README).
+- ✅ Original synthesis mapping onto Agent Builder catalog/template surfaces: completed in file 13 (see "How this maps onto Agent Builder surfaces").
+- ✅ Reusable template suite under `plugin/references/templates/agentic-handoff/`: completed (15 templates + index README).

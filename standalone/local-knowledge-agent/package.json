@@ -1,0 +1,23 @@
+{
+  "name": "local-knowledge-agent",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Standalone local document ingest, SQLite, vector, knowledge graph, and retrieval agent.",
+  "bin": {
+    "local-knowledge-agent": "./bin/local-knowledge-agent.mjs"
+  },
+  "scripts": {
+    "install:local": "node scripts/setup-check.mjs",
+    "setup:check": "node scripts/setup-check.mjs",
+    "smoke:test": "node scripts/smoke-test.mjs",
+    "start": "node bin/local-knowledge-agent.mjs serve",
+    "init": "node bin/local-knowledge-agent.mjs init",
+    "stats": "node bin/local-knowledge-agent.mjs stats"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {}
+}

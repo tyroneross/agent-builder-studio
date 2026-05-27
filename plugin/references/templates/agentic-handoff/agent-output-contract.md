@@ -23,4 +23,4 @@ agent_output:
   next_recommended_agent: "<agent or none>"
 ```
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Agent output contract").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Agent output contract").

@@ -112,7 +112,7 @@ Minimum viable eval suite for a local agent:
 4. **Model-swap regression**: the same eval suite against the old and new model on the same day; diff the pass rates
 5. **Per-tool accuracy tracking**: some models call some tools reliably and others not — surface this per-tool, not as an aggregate
 
-See `methodology/09-evaluation-and-improvement-playbook.md` for the full evaluation playbook. This file just emphasizes: **skip it at your peril.**
+Use `references/templates/evaluation-deliverable.md` plus the generated `evals/` files for the evaluation loop. This file just emphasizes: **skip it at your peril.**
 
 ---
 

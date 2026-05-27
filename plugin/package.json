@@ -1,0 +1,47 @@
+{
+  "name": "@tyroneross/agent-builder",
+  "version": "0.3.1",
+  "description": "Standalone plugin companion for designing and evaluating agentic harnesses with research synthesis, prompt contracts, and an architecture catalog",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Tyrone Ross"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tyroneross/agent-builder.git",
+    "directory": "plugin"
+  },
+  "homepage": "https://github.com/tyroneross/agent-builder/tree/main/plugin",
+  "private": false,
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "files": [
+    "SKILL.md",
+    "README.md",
+    "metadata.json",
+    ".claude-plugin",
+    ".codex-plugin",
+    "examples",
+    "references"
+  ],
+  "keywords": [
+    "agent",
+    "harness",
+    "architecture",
+    "design",
+    "evaluation",
+    "multi-agent",
+    "tools",
+    "permissions",
+    "memory",
+    "observability",
+    "langgraph",
+    "crewai",
+    "pydantic-ai",
+    "smolagents",
+    "dspy",
+    "autogen"
+  ]
+}

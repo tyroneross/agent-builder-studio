@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: 2025-2026 Tyrone Ross, Jr <46267523+tyroneross@users.noreply.github.com>
+# SPDX-License-Identifier: Apache-2.0
+name: Publish @tyroneross/agent-builder to GitHub Packages
+
+# Publishes only the plugin/ subdirectory. The repo root is the Next.js
+# app/workbench (private:true) and never publishes. Triggered by tags
+# matching `plugin-v*` so root-level work cannot accidentally release.
+
+on:
+  push:
+    tags:
+      - "plugin-v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run 'npm publish --dry-run' instead of publishing"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@tyroneross"
+          always-auth: true
+
+      - name: Verify tag matches plugin/package.json version
+        if: github.event_name == 'push'
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          # Strip "plugin-v" prefix from tag (e.g. plugin-v0.3.1 -> 0.3.1)
+          TAG="${GITHUB_REF_NAME#plugin-v}"
+          if [ "$PKG_VERSION" != "$TAG" ]; then
+            echo "::error::version drift: plugin/package.json=$PKG_VERSION tag=$TAG"
+            exit 1
+          fi
+          echo "Version match: $PKG_VERSION"
+
+      - name: Verify plugin manifests are in sync
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          CLAUDE=$(jq -r .version .claude-plugin/plugin.json)
+          CODEX=$(jq -r .version .codex-plugin/plugin.json)
+          META=$(jq -r .version metadata.json)
+          if [ "$PKG" != "$CLAUDE" ] || [ "$PKG" != "$CODEX" ] || [ "$PKG" != "$META" ]; then
+            echo "::error::version drift: package.json=$PKG .claude-plugin=$CLAUDE .codex-plugin=$CODEX metadata.json=$META"
+            exit 1
+          fi
+          echo "All four manifests aligned at $PKG"
+
+      - name: Publish (dry-run)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish --dry-run
+
+      - name: Publish
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true')
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish

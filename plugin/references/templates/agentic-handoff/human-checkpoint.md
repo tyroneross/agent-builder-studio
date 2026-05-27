@@ -32,4 +32,4 @@ notes: "<human notes>"
 | `pre-deploy` | Approve deployment to user-facing environment, secrets, rollback plan. |
 | `post-deploy` | Review monitoring, incidents, drift before the next build cycle. |
 
-**Source:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Human review checkpoint").
+**Reference:** `~/dev/research/topics/product-dev/product-dev.agentic-systems-design-chatgpt.md` (ChatGPT addendum, "Human review checkpoint").
