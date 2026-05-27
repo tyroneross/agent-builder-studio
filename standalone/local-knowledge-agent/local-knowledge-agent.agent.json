@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "local-knowledge-agent.install-manifest.v1",
+  "name": "Local Knowledge Agent",
+  "version": "0.1.0",
+  "packageRoot": ".",
+  "runtime": {
+    "required": ["Node.js 22+"],
+    "optional": ["Ollama", "Omniparse local SDK"]
+  },
+  "commands": {
+    "install": "./install.sh",
+    "setupCheck": "npm run setup:check",
+    "startWebUi": "npm start",
+    "ingest": "node bin/local-knowledge-agent.mjs ingest <files...>",
+    "search": "node bin/local-knowledge-agent.mjs search \"query\""
+  },
+  "storage": {
+    "vectorStore": "data/store/store.json",
+    "database": "data/store/knowledge.db",
+    "databaseEngine": "SQLite",
+    "tables": ["documents", "chunks", "entities", "relations", "runs"]
+  },
+  "retrieval": {
+    "modes": ["hybrid", "semantic", "sql"],
+    "fallbackEmbedding": "deterministic local hashing vectorizer"
+  }
+}
