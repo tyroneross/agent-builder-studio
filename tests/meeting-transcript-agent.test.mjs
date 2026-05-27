@@ -12,7 +12,8 @@ import {
   searchMeetingMemory,
 } from "../lib/meeting-transcript-agent.mjs";
 
-const OMNIPARSE_ENTRY = "/Users/tyroneross/dev/git-folder/Omniparse/packages/sdk/dist/index.mjs";
+const OMNIPARSE_ENTRY = process.env.OMNIPARSE_ENTRY
+  ?? "/Users/tyroneross/dev/git-folder/Omniparse/packages/sdk/dist/index.mjs";
 
 function upload(name, text, type = "text/plain") {
   const buffer = Buffer.from(text, "utf8");
