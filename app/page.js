@@ -6,6 +6,7 @@ import {
   Check,
   ChevronRight,
   Database,
+  FileText,
   FileCode2,
   Link2,
   ListChecks,
@@ -411,6 +412,10 @@ export default function Home() {
           <a className="ghost-button" href="/investments">
             <ListChecks size={16} />
             Review Investment
+          </a>
+          <a className="ghost-button" href="/meetings">
+            <FileText size={16} />
+            Ingest Files
           </a>
           <button className="ghost-button" onClick={() => replaceSpecFromPattern(activePattern)}>
             <RotateCcw size={16} />
