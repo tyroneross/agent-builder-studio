@@ -1,6 +1,6 @@
 interface:
-  display_name: "Agent Builder"
-  short_description: "Design, evaluate, and improve agentic harnesses (incl. local/OSS models)"
+  display_name: "Agent Builder App"
+  short_description: "Design, package, and reuse agentic harnesses with a bundled plugin companion"
   default_prompt: "Use $agent-builder to design, audit, or upgrade an agentic harness for my product."
 policy:
   allow_implicit_invocation: true

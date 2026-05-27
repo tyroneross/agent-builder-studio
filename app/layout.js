@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Agent Builder",
-  description: "Design, preview, and build local agent harness files.",
+  title: "Agent Builder App",
+  description: "Local app/workbench for designing, previewing, packaging, and reusing agent harnesses.",
 };
 
 export default function RootLayout({ children }) {

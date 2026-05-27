@@ -1,7 +1,15 @@
 {
   "name": "Agent Builder",
-  "description": "Design, evaluate, and improve agentic harnesses for developer tools, assistants, workflow runtimes, copilots, and AI-powered products — including agents built on local and open-source models. Combines Agent Builder-owned research synthesis (how to decide), Prompt Builder contracts (how generated prompts stay reliable), and an empirical catalog (what exists) covering architecture types, frameworks, memory substrates, production lab patterns, and local/open-source model guidance.",
-  "category": "skills",
+  "description": "Local app/workbench for designing, evaluating, packaging, and reusing agentic harnesses, with a standalone plugin companion bundled under plugin/ for Claude/Codex-style hosts.",
+  "category": "apps",
+  "product_type": "local-app-workbench",
+  "plugin_companion": {
+    "path": "plugin/",
+    "standalone": true,
+    "bundled_with_app_repository": true,
+    "entrypoint": "plugin/SKILL.md",
+    "metadata": "plugin/metadata.json"
+  },
   "author": {
     "name": "Tyrone Ross",
     "github": "tyroneross",
@@ -11,7 +19,7 @@
   "license": "Apache-2.0",
   "requires": {
     "services": [],
-    "tools": ["AI client with reusable skills/prompts", "Ability to install the bundled references directory"]
+    "tools": ["Node.js", "npm", "AI client with reusable skills/prompts for the optional plugin companion"]
   },
   "tags": [
     "agentic-harness",
@@ -30,7 +38,7 @@
   "difficulty": "advanced",
   "estimated_time": "15 minutes",
   "created": "2026-04-05",
-  "updated": "2026-05-13",
+  "updated": "2026-05-16",
   "attribution": {
     "external_reference": {
       "skill": "n-agentic-harnesses",

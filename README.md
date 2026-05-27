@@ -1,26 +1,17 @@
-# agent-builder
+# Agent Builder App
 
-A comprehensive, modular skill for designing, evaluating, and improving agentic harnesses — the layer around the model that turns a language model into a product.
+Agent Builder is a local app/workbench for designing, evaluating, packaging, and reusing agentic harnesses. The app is the primary product surface; the bundled `plugin/` directory is a standalone companion skill for Claude/Codex-style hosts.
 
 ## Distribution model
 
-Agent Builder has two distribution shapes:
+Agent Builder now has one primary product plus one companion package:
 
-- **RossLabs AI Toolkit marketplace plugin:** the slim skill/instruction package.
-  Use this when you want Agent Builder to show up inside Claude/Codex as a
-  lightweight design and evaluation skill.
-- **This GitHub repo:** the full downloadable Agent Builder workbench. Use this
-  when you want the local Next.js visual builder, generated agent structures,
-  sandbox tests, DOE runs, example artifacts, and implementation tooling.
+- **App/workbench:** this GitHub repo. Use it when you want the local Next.js visual builder, generated agent structures, investment review dashboard, sandbox tests, DOE runs, package export, install checks, and implementation tooling.
+- **Plugin companion:** `plugin/`. Use it when you want the Agent Builder design/evaluation method inside Claude, Codex, or another reusable-skill host without installing the full app.
 
-The marketplace plugin should stay small. The heavier app, artifact examples,
-local DOE experiments, and generated outputs belong in this repo or in GitHub
-release assets, not inside the RossLabs AI Toolkit package.
+The plugin companion is intentionally modular and standalone. It contains its own `README.md`, `SKILL.md`, host manifests, examples, references, and metadata, and it must not import the Next.js app, generators, tests, sandbox, generated outputs, or app-only scripts. The same companion remains bundled in this repository so the app and plugin can evolve from one source tree.
 
-If you already installed the marketplace plugin, pulling this repo does not
-automatically update that installed plugin. Reinstall or update the marketplace
-package when the slim toolkit package changes. To get the full workbench, clone
-or pull this repo directly:
+If you already installed an older marketplace plugin, pulling this repo does not automatically update that installed plugin. Reinstall or update the plugin companion when `plugin/` changes. To get the full app/workbench, clone or pull this repo directly:
 
 ```bash
 git clone https://github.com/tyroneross/agent-builder.git
@@ -152,13 +143,15 @@ npm run agents:artifacts -- --doe --models qwen3:8b-q4_K_M,gemma4:26b,tinyllama:
 
 This writes actual `.pptx`, `.docx`, `.xlsx`, `.csv`, `.pdf`, `.html`, `.json`, and `.md` outputs under `agent-outputs/hypothetical-local-agent-suite/`. See `docs/real-output-artifact-report.md`.
 
-**Three bodies of knowledge, one skill:**
+## Plugin companion
 
-- **Research synthesis** — *how to decide for agent-builder outputs*. Product-development agent handoff guidance, autonomy boundaries, tool permission tiers, workflow topology, memory taxonomy, and artifact contracts. 2 Agent Builder-authored synthesis files.
-- **Catalog** — *what exists*. Architecture taxonomy (Type I–V), six-component harness model, 7 framework deep dives (LangGraph / CrewAI / Pydantic AI / smolagents / DSPy / AutoGen / Bedrock), memory substrate inventory, 14 production lab patterns (Anthropic, OpenAI, Perplexity, Manus, Google, Devin, Cursor, Windsurf, and more), and dedicated guidance for agents built on local/open-source models (Ollama, llama.cpp, vLLM, Llama, Qwen, DeepSeek, Mistral). 6 catalog files.
+The plugin companion is the portable method layer for the app. It ships three bodies of knowledge without requiring the local workbench:
+
+- **Research synthesis** — *how to decide for Agent Builder outputs*. Product-development agent handoff guidance, autonomy boundaries, tool permission tiers, workflow topology, memory taxonomy, and artifact contracts. 2 Agent Builder-authored synthesis files.
+- **Catalog** — *what exists*. Architecture taxonomy (Type I-V), six-component harness model, 7 framework deep dives (LangGraph / CrewAI / Pydantic AI / smolagents / DSPy / AutoGen / Bedrock), memory substrate inventory, 14 production lab patterns (Anthropic, OpenAI, Perplexity, Manus, Google, Devin, Cursor, Windsurf, and more), and dedicated guidance for agents built on local/open-source models (Ollama, llama.cpp, vLLM, Llama, Qwen, DeepSeek, Mistral). 6 catalog files.
 - **Prompt contracts** — *how generated prompts stay reliable*. Generated agents include Prompt Builder contracts grounded in the local Prompt Builder repo plus current OpenAI, Anthropic, Perplexity/Sonar, and MCP prompt guidance.
 
-Plus output templates and two fully worked examples. The single `plugin/SKILL.md` is cross-LLM — natural-language description triggers in Claude Code and other hosts; the `metadata` frontmatter block (priority, pathPatterns, importPatterns, bashPatterns, promptSignals) auto-activates on Codex.
+The companion also includes output templates and two fully worked examples. The single `plugin/SKILL.md` is cross-LLM: natural-language description triggers in Claude Code and other hosts; the `metadata` frontmatter block (priority, pathPatterns, importPatterns, bashPatterns, promptSignals) auto-activates on Codex.
 
 ## When it activates
 
@@ -173,14 +166,16 @@ Automatic triggers include requests to design or rebuild an agent/assistant/copi
 
 ## Structure
 
-The repo holds two distinct products in one tree:
+The repo holds the app and its plugin companion in one tree:
 
-- **`plugin/`** — the slim cross-LLM skill. This is what ships via the RossLabs AI Toolkit marketplace. Stays small.
-- Everything else at the repo root — the Next.js workbench app, generators, scripts, sandbox, generated artifacts. Cloned via `git clone`.
+- **Root app/workbench** — Next.js app, generators, scripts, sandbox, package exporter, generated structures, and tests.
+- **`plugin/` companion** — standalone cross-LLM skill package. This can ship via a marketplace, be copied into another host, or stay bundled with the app repo.
 
 ```
 agent-builder/
-├── plugin/                             # slim skill — marketplace package
+├── plugin/                             # standalone plugin companion
+│   ├── README.md                       # companion install and boundary contract
+│   ├── metadata.json                   # companion package metadata
 │   ├── SKILL.md                        # entry, trigger, router (cross-LLM)
 │   ├── .claude-plugin/plugin.json      # Claude Code manifest
 │   ├── .codex-plugin/plugin.json       # Codex manifest
@@ -189,10 +184,10 @@ agent-builder/
 │       ├── methodology/                # Agent Builder synthesis/addenda
 │       ├── catalog/                    # 6 files — what exists
 │       └── templates/                  # output shapes + nightly DOE contract
-├── README.md                           # this file
+├── README.md                           # app/workbench source of truth
 ├── LICENSE                             # Apache-2.0
 ├── NOTICE                              # external reference attributions
-├── metadata.json                       # skill catalog metadata
+├── metadata.json                       # app/workbench catalog metadata
 ├── agents/openai.yaml                  # OpenAI-host UX wiring
 │
 ├── app/                                # Next.js 16 visual builder (workbench)
@@ -216,14 +211,13 @@ No variant files; one canonical SKILL.md serves every host.
 
 ## Install
 
-**Slim plugin via the RossLabs marketplace:**
+**Plugin companion via the RossLabs marketplace:**
 ```bash
 /plugin marketplace add tyroneross/RossLabs-AI-Toolkit
 /plugin install agent-builder@RossLabs-AI-Toolkit
 ```
 
-This installs the lightweight skill from the toolkit. It does not install the
-full local app, generated artifact suite, or DOE workbench from this repo.
+This installs the lightweight companion from the toolkit. It does not install the full local app, generated artifact suite, export tooling, or DOE workbench from this repo.
 
 **Full downloadable workbench from GitHub:**
 ```bash
@@ -233,7 +227,7 @@ npm install
 npm run serve
 ```
 
-**As a standalone user skill** (any plugin host or bare Claude Code):
+**Plugin companion from this repo** (standalone user skill):
 ```bash
 mkdir -p ~/.claude/skills/agent-builder
 rsync -a plugin/SKILL.md plugin/references plugin/examples \
@@ -242,9 +236,11 @@ rsync -a plugin/SKILL.md plugin/references plugin/examples \
 
 **Inside another plugin:** drop the contents of `plugin/` into that plugin's `skills/agent-builder/` directory.
 
+The companion boundary is deliberate: `plugin/` should remain copyable as a unit and should not depend on app-root files. App features can reference `plugin/`, but the companion must be able to stand alone.
+
 ## Design posture
 
-The skill defaults to lean, solo-maintainable, single-agent architecture and requires empirical evidence (not vibes) before escalating to multi-agent. The catalog's verified stats — multi-agent costs 15× chat tokens, 70%+ of multi-agent failures are systemic, only 11% of orgs run production agents — are the anchor. When you push for complexity, the skill will ask for the constraint that justifies it.
+The plugin companion defaults to lean, solo-maintainable, single-agent architecture and requires empirical evidence before escalating to multi-agent. The catalog's verified stats - multi-agent costs 15x chat tokens, 70%+ of multi-agent failures are systemic, only 11% of orgs run production agents - are the anchor. When you push for complexity, the skill will ask for the constraint that justifies it.
 
 ## Attribution
 
@@ -262,7 +258,7 @@ Apache-2.0. See `NOTICE` for external reference attributions.
 
 ## Codex
 
-The slim plugin ships parallel install surfaces for Claude Code and Codex from the same `plugin/SKILL.md`:
+The plugin companion ships parallel install surfaces for Claude Code and Codex from the same `plugin/SKILL.md`:
 
 - `plugin/.claude-plugin/plugin.json` — Claude Code marketplace manifest
 - `plugin/.codex-plugin/plugin.json` — Codex manifest
