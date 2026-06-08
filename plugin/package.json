@@ -4,7 +4,8 @@
   "description": "Standalone plugin companion for designing and evaluating agentic harnesses with research synthesis, prompt contracts, and an architecture catalog",
   "license": "Apache-2.0",
   "author": {
-    "name": "Tyrone Ross"
+    "name": "Tyrone Ross, Jr",
+    "email": "46267523+tyroneross@users.noreply.github.com"
   },
   "repository": {
     "type": "git",

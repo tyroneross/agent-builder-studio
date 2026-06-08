@@ -38,3 +38,8 @@ agent-outputs/**/.claude/
 .navgator/architecture/SUMMARY.md
 .navgator/architecture/SUMMARY_FULL.md
 # <<< NavGator safety guard
+
+# Local cleanup archives
+.archive/
+.bookmark/
+.claude-code-debugger/
