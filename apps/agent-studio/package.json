@@ -1,0 +1,23 @@
+{
+  "name": "agent-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --webpack -p 3030",
+    "build": "next build",
+    "start": "next start -p 3030",
+    "test:self": "node scripts/test-self.mjs && node scripts/test-roundtrip.mjs && node scripts/test-no-hardcoded-storage.mjs",
+    "test:roundtrip": "node scripts/test-roundtrip.mjs",
+    "test:no-hardcoded-storage": "node scripts/test-no-hardcoded-storage.mjs"
+  },
+  "dependencies": {
+    "next": "^16.2.4",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "overrides": {
+    "postcss": "^8.5.12"
+  },
+  "license": "Apache-2.0"
+}

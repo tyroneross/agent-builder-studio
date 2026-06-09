@@ -1,0 +1,78 @@
+{
+  "id": "p-test-seed",
+  "name": "Solo Tool Agent (test fixture)",
+  "workingFolder": "",
+  "createdAt": "2026-04-27T00:00:00.000Z",
+  "goal": "Plan the rollout of a new internal tool",
+  "context": "We are a small engineering team. The tool will be used by 20 people initially.",
+  "outcome": "A clear rollout plan with a guardrail check, a chosen next action, an executor output, and an evaluation.",
+  "uploads": [],
+  "canvas": {
+    "nodes": [
+      {
+        "id": "intake",
+        "role": "agent",
+        "title": "Intake",
+        "description": "Normalize the user goal and identify missing inputs before routing.",
+        "instructions": "Restate the user query as a normalized goal and list any missing inputs.",
+        "x": 120,
+        "y": 200,
+        "w": 220,
+        "h": 130
+      },
+      {
+        "id": "policy",
+        "role": "guardrail",
+        "title": "Policy gate",
+        "description": "Classify read, write, network, shell, and credential intent against permissions.",
+        "instructions": "Decide if the upstream intake is allowed to proceed under default permissions.",
+        "x": 400,
+        "y": 200,
+        "w": 220,
+        "h": 130
+      },
+      {
+        "id": "orch",
+        "role": "orchestrator",
+        "title": "Orchestrator",
+        "description": "Choose the next action from the active tool pool.",
+        "instructions": "Pick a single concrete next action toward the rollout plan.",
+        "x": 680,
+        "y": 200,
+        "w": 220,
+        "h": 130
+      },
+      {
+        "id": "exec",
+        "role": "executor",
+        "title": "Executor",
+        "description": "Run approved reads or writes and return structured results.",
+        "instructions": "Produce the concrete artifact for the next action chosen by the orchestrator.",
+        "x": 680,
+        "y": 380,
+        "w": 220,
+        "h": 130
+      },
+      {
+        "id": "evalCheck",
+        "role": "eval",
+        "title": "Eval check",
+        "description": "Check output, permissions, and guardrail invariants.",
+        "instructions": "Score the executor output against the desired outcome and list any defects.",
+        "x": 960,
+        "y": 290,
+        "w": 220,
+        "h": 130
+      }
+    ],
+    "edges": [
+      { "id": "intake->policy", "from": "intake", "to": "policy" },
+      { "id": "policy->orch", "from": "policy", "to": "orch" },
+      { "id": "orch->exec", "from": "orch", "to": "exec" },
+      { "id": "exec->evalCheck", "from": "exec", "to": "evalCheck" },
+      { "id": "orch->evalCheck", "from": "orch", "to": "evalCheck" }
+    ],
+    "pan": { "x": 0, "y": 0 },
+    "zoom": 1
+  }
+}

@@ -1,0 +1,700 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import ProjectsList from "./components/ProjectsList";
+import NewProjectForm from "./components/NewProjectForm";
+import SetupConversation from "./components/SetupConversation";
+import HowItWorks from "./components/HowItWorks";
+import PatternPicker from "./components/PatternPicker";
+import OnboardingWizard, { ONBOARDING_FLAG_KEY } from "./components/OnboardingWizard";
+import {
+  emptyStore,
+  getActiveProject,
+  loadStore,
+  makeProject,
+  makeDemoProject,
+  findDemoProject,
+  DEMO_PROJECT_NAME,
+  DEMO_PROJECT_WORKING_FOLDER,
+  withProjectUpdated,
+  writeStore,
+} from "./lib/projects";
+
+// Landing page. Shows existing projects and gates new-project creation behind
+// a single-screen form. Submitting routes to /canvas with the new project active.
+//
+// Pass 8 additions:
+//   - When zero projects exist, show a hero + "How it works" + two CTAs.
+//   - "Try the demo project" creates a canonical seeded project (or opens
+//     it if one already exists) and routes to /canvas.
+//   - Inline Ollama health check pings /api/agent/models and reports state.
+export default function Landing() {
+  const router = useRouter();
+  const [store, setStore] = useState(null);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoError, setDemoError] = useState(null);
+
+  // Pass 9: onboarding wizard + pattern picker.
+  // - showWizard: whether the modal is currently visible. Triggered on first
+  //   visit (no localStorage flag) when the user has no projects, or when the
+  //   user clicks the "Show onboarding" link.
+  // - seedPattern: the pattern selected from either the wizard or the
+  //   landing-page picker. Passed into NewProjectForm so it pre-fills name +
+  //   carries the canvas through to project creation.
+  const [showWizard, setShowWizard] = useState(false);
+  const [seedPattern, setSeedPattern] = useState(null);
+
+  // Pass 12: conversational setup is the default new-project path.
+  //   - newProjectMode: "conversation" (default) | "manual"
+  //   - newProjectActive: whether the user has chosen to start a new project.
+  //     For empty state we just render SetupConversation inline. For the
+  //     hasProjects=true header CTA, we toggle this on/off.
+  // The seven-field NewProjectForm is gated behind manual mode (escape hatch).
+  // `goalCarry` carries the typed goal across mode toggles so the user
+  // doesn't have to retype if they bounce between conversation and form.
+  const [newProjectMode, setNewProjectMode] = useState("conversation");
+  const [newProjectActive, setNewProjectActive] = useState(false);
+  const [goalCarry, setGoalCarry] = useState("");
+  const [goalPlaceholder, setGoalPlaceholder] = useState(null);
+
+  // Pass 8: Ollama prereq state. "unknown" while loading, "ok" if >=1 model,
+  // "warn" if reachable but empty, "err" if unreachable. The empty state on
+  // the landing page renders a compact pill driven by this.
+  const [prereq, setPrereq] = useState({ status: "unknown", detail: null });
+
+  useEffect(() => {
+    const loaded = loadStore();
+    if (loaded) {
+      setStore(loaded);
+    } else {
+      const fresh = emptyStore();
+      setStore(fresh);
+      writeStore(fresh);
+    }
+  }, []);
+
+  // Pass 9: first-run onboarding gate. We open the wizard only when both
+  // (a) the user has no projects and (b) they haven't completed onboarding.
+  // The flag is per-browser (localStorage), not per-project. The wizard uses
+  // the same store-loaded effect timing as the rest of the page so it doesn't
+  // flash before hydration.
+  useEffect(() => {
+    if (!store) return;
+    if (store.projects.length > 0) return;
+    if (typeof window === "undefined") return;
+    let done = false;
+    try {
+      done = window.localStorage.getItem(ONBOARDING_FLAG_KEY) === "1";
+    } catch {
+      done = false;
+    }
+    if (!done) setShowWizard(true);
+  }, [store]);
+
+  function persistOnboardingComplete() {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(ONBOARDING_FLAG_KEY, "1");
+    } catch {}
+  }
+
+  function handleWizardClose() {
+    persistOnboardingComplete();
+    setShowWizard(false);
+  }
+
+  function handleWizardComplete() {
+    persistOnboardingComplete();
+    setShowWizard(false);
+  }
+
+  // Pass 12: pattern click no longer opens the manual form. Instead it
+  // biases the SetupConversation by setting `seedPattern` (used as
+  // preferredPattern) and pre-fills a placeholder hint for the goal box.
+  function handlePickPattern(pattern) {
+    setSeedPattern(pattern);
+    setNewProjectMode("conversation");
+    setGoalPlaceholder(`e.g. ${pattern.shortDescription}`);
+    setNewProjectActive(true);
+    // Defer scroll to next tick so the section is mounted.
+    if (typeof window !== "undefined") {
+      setTimeout(() => {
+        const el = document.querySelector("[data-landing-new-section]");
+        if (el && typeof el.scrollIntoView === "function") {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 0);
+    }
+  }
+
+  function handleWizardBlank() {
+    // "Create a blank project" from the wizard now lands on the conversation
+    // with no preferred pattern. The user can still escape to the form.
+    setSeedPattern(null);
+    setNewProjectMode("conversation");
+    setGoalPlaceholder(null);
+    setNewProjectActive(true);
+  }
+
+  function handleWizardExplore() {
+    setSeedPattern(null);
+    setNewProjectActive(false);
+  }
+
+  function handleReopenWizard() {
+    setSeedPattern(null);
+    setShowWizard(true);
+  }
+
+  function handleSwitchToManual({ goal } = {}) {
+    if (typeof goal === "string") setGoalCarry(goal);
+    setNewProjectMode("manual");
+  }
+
+  function handleSwitchToConversation({ goal } = {}) {
+    if (typeof goal === "string") setGoalCarry(goal);
+    setNewProjectMode("conversation");
+  }
+
+  function handleCloseNewProject() {
+    setNewProjectActive(false);
+    setSeedPattern(null);
+    setGoalPlaceholder(null);
+    setGoalCarry("");
+    // Reset to conversation as the default for next time.
+    setNewProjectMode("conversation");
+  }
+
+  // Health check: only when no projects exist. We don't need to spam the
+  // model endpoint on every visit — once the user has projects they'll see
+  // model state inside the canvas test panel.
+  useEffect(() => {
+    if (!store) return;
+    if (store.projects.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/agent/models");
+        const body = await res.json();
+        if (cancelled) return;
+        if (body?.ok && Array.isArray(body.models) && body.models.length > 0) {
+          setPrereq({ status: "ok", detail: `${body.models.length} model${body.models.length === 1 ? "" : "s"} available` });
+        } else if (body?.ok && Array.isArray(body.models)) {
+          setPrereq({ status: "warn", detail: "ollama is reachable but no models are pulled" });
+        } else {
+          setPrereq({ status: "err", detail: body?.error || "ollama did not respond" });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setPrereq({ status: "err", detail: err?.message || "ollama unreachable" });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [store]);
+
+  const activeProject = useMemo(() => (store ? getActiveProject(store) : null), [store]);
+
+  function persist(next) {
+    setStore(next);
+    writeStore(next);
+  }
+
+  function handleOpen(projectId) {
+    if (!store) return;
+    const next = { ...store, activeProjectId: projectId };
+    persist(next);
+    router.push("/canvas");
+  }
+
+  function handleRename(projectId, name) {
+    if (!store) return;
+    const next = withProjectUpdated(store, projectId, (p) => ({ ...p, name }));
+    persist(next);
+  }
+
+  function handleDelete(projectId) {
+    if (!store) return;
+    const remaining = store.projects.filter((p) => p.id !== projectId);
+    const wasActive = store.activeProjectId === projectId;
+    const next = {
+      ...store,
+      projects: remaining,
+      activeProjectId: wasActive ? (remaining[0]?.id ?? null) : store.activeProjectId,
+    };
+    persist(next);
+  }
+
+  function handleCreate({ name, workingFolder, goal, context, outcome, uploads, canvas }) {
+    // Pass 9: when canvas is supplied (from the seed-pattern flow), forward
+    // it so makeProject uses the pattern's nodes/edges instead of the default
+    // Solo Tool Agent seed.
+    const project = makeProject({ name, workingFolder, goal, context, outcome, uploads, canvas });
+    const next = store
+      ? { ...store, projects: [...store.projects, project], activeProjectId: project.id }
+      : { ...emptyStore(), projects: [project], activeProjectId: project.id };
+    persist(next);
+    setSeedPattern(null);
+    setNewProjectActive(false);
+    setNewProjectMode("conversation");
+    setGoalCarry("");
+    setGoalPlaceholder(null);
+    router.push("/canvas");
+  }
+
+  // Pass 8: idempotent demo flow.
+  //   1. If a project named DEMO_PROJECT_NAME exists, switch to it and go.
+  //   2. Otherwise: ensure /tmp/agent-studio-demo/ exists via /api/fs/validate
+  //      with create:true, build the seeded project, persist, navigate.
+  // Errors don't block — we still create the project locally and let the
+  // canvas surface working-folder warnings later. We do show the message
+  // inline so the user knows.
+  async function handleTryDemo() {
+    if (!store) return;
+    if (demoBusy) return;
+    setDemoBusy(true);
+    setDemoError(null);
+
+    const existing = findDemoProject(store);
+    if (existing) {
+      const next = { ...store, activeProjectId: existing.id };
+      persist(next);
+      // Mark the existing project's onboarded flag so we don't re-prompt
+      // someone who has already seen the welcome modal for the demo.
+      router.push("/canvas");
+      return;
+    }
+
+    // Best-effort mkdir. The /tmp/agent-studio-demo path is permitted by the
+    // validator's allowlist. We don't fail if it errors — the canvas will
+    // show the working-folder warning the same way it does for any project.
+    try {
+      const res = await fetch("/api/fs/validate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: DEMO_PROJECT_WORKING_FOLDER, create: true }),
+      });
+      const body = await res.json();
+      if (!body?.ok) {
+        setDemoError(body?.error || "could not prepare working folder");
+      }
+    } catch (err) {
+      setDemoError(err?.message || "could not reach /api/fs/validate");
+    }
+
+    const project = makeDemoProject();
+    const next = {
+      ...store,
+      projects: [...store.projects, project],
+      activeProjectId: project.id,
+    };
+    persist(next);
+    setDemoBusy(false);
+    router.push("/canvas");
+  }
+
+  if (!store) {
+    return (
+      <div className="land-loading" data-landing-loading>
+        Loading…
+        <style jsx>{`
+          .land-loading {
+            padding: 48px;
+            color: var(--muted);
+            font-size: 14px;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  const hasProjects = store.projects.length > 0;
+
+  return (
+    <div className="land">
+      <OnboardingWizard
+        open={showWizard}
+        onComplete={handleWizardComplete}
+        onClose={handleWizardClose}
+        onPickPattern={handlePickPattern}
+        onPickBlank={handleWizardBlank}
+        onExplore={handleWizardExplore}
+      />
+      <header className="land-hero">
+        <div className="land-hero-text">
+          <span className="land-eyebrow">Agent Studio</span>
+          <h1 className="land-title">
+            {hasProjects
+              ? "Visual canvas for agent design and testing."
+              : "Design and test agents on your local machine. No cloud, no waiting."}
+          </h1>
+          <p className="land-sub">
+            Sketch the agent graph, attach context files, and iterate on a project at a time.
+          </p>
+        </div>
+        {hasProjects && (
+          <button
+            type="button"
+            className="tool-btn land-cta"
+            onClick={() => {
+              if (newProjectActive) {
+                handleCloseNewProject();
+              } else {
+                setNewProjectActive(true);
+                setNewProjectMode("conversation");
+              }
+            }}
+            data-landing-new-project
+          >
+            {newProjectActive ? "close" : "+ new project"}
+          </button>
+        )}
+      </header>
+
+      <main className="land-main">
+        {!hasProjects && (
+          <section className="land-card" data-landing-empty>
+            <HowItWorks />
+
+            <div className="land-cta-row" data-landing-cta-row>
+              <button
+                type="button"
+                className="cta cta-primary"
+                onClick={handleTryDemo}
+                disabled={demoBusy}
+                data-landing-try-demo
+              >
+                {demoBusy ? "Preparing demo…" : "Try the demo project"}
+              </button>
+            </div>
+
+            <div
+              className={`prereq prereq-${prereq.status}`}
+              data-landing-prereq
+              data-prereq-status={prereq.status}
+            >
+              <span className="prereq-dot" aria-hidden="true" />
+              <span className="prereq-label">
+                {prereq.status === "unknown" && "Checking Ollama…"}
+                {prereq.status === "ok" && `Ollama ready · ${prereq.detail}`}
+                {prereq.status === "warn" && (
+                  <>
+                    Ollama is reachable but no models are pulled. See{" "}
+                    <a href="/README.md#troubleshooting" target="_blank" rel="noreferrer">
+                      troubleshooting
+                    </a>
+                    .
+                  </>
+                )}
+                {prereq.status === "err" && (
+                  <>
+                    Ollama not reachable ({prereq.detail}). See{" "}
+                    <a href="/README.md#troubleshooting" target="_blank" rel="noreferrer">
+                      troubleshooting
+                    </a>
+                    .
+                  </>
+                )}
+              </span>
+            </div>
+
+            {demoError && (
+              <p className="land-card-sub" data-landing-demo-error>
+                Working folder note: {demoError}
+              </p>
+            )}
+          </section>
+        )}
+
+        {/* Pass 12: pattern picker stays visible above the conversational
+            entry. Clicking a card biases the conversation's preferredPattern
+            and pre-fills a placeholder. */}
+        {(!hasProjects || newProjectActive) && (
+          <section className="land-card" data-landing-pattern-section>
+            <div className="land-card-header">
+              <span className="land-eyebrow">Start from a pattern</span>
+              <p className="land-card-sub">
+                Optional. Pick one of four canonical agent shapes to bias the suggestion.
+              </p>
+            </div>
+            <PatternPicker onSelect={handlePickPattern} />
+          </section>
+        )}
+
+        {/* Pass 12: conversational setup is the default new-project entry.
+            Always shown for empty state; toggled by the header CTA when the
+            user has projects. The seven-field form is behind a manual escape
+            hatch. */}
+        {(!hasProjects || newProjectActive) && (
+          <section
+            className="land-card"
+            data-landing-new-section
+            data-new-project-mode={newProjectMode}
+          >
+            <div className="land-card-header">
+              <span className="land-eyebrow">New project</span>
+              {seedPattern && (
+                <span className="land-card-sub" data-landing-seed-pattern>
+                  Pattern hint: <strong>{seedPattern.name}</strong>
+                </span>
+              )}
+            </div>
+            {newProjectMode === "conversation" ? (
+              <SetupConversation
+                onCreate={handleCreate}
+                onSwitchToManual={handleSwitchToManual}
+                preferredPattern={seedPattern?.id || null}
+                initialGoal={goalCarry}
+                initialGoalPlaceholder={goalPlaceholder}
+              />
+            ) : (
+              <NewProjectForm
+                onCreate={handleCreate}
+                onCancel={handleCloseNewProject}
+                onSwitchToConversation={handleSwitchToConversation}
+                seedPattern={seedPattern}
+                initialGoal={goalCarry}
+              />
+            )}
+          </section>
+        )}
+
+        {hasProjects && (
+          <section className="land-card">
+            <div className="land-card-header">
+              <span className="land-eyebrow">
+                Projects {store.projects.length > 0 && `(${store.projects.length})`}
+              </span>
+              {activeProject && (
+                <span className="land-card-sub">
+                  Active: <strong>{activeProject.name}</strong>
+                </span>
+              )}
+            </div>
+            <ProjectsList
+              projects={store.projects}
+              activeProjectId={store.activeProjectId}
+              onOpen={handleOpen}
+              onRename={handleRename}
+              onDelete={handleDelete}
+            />
+          </section>
+        )}
+
+        <div className="land-footer" data-landing-footer>
+          <button
+            type="button"
+            className="land-footer-link"
+            onClick={handleReopenWizard}
+            data-landing-show-onboarding
+          >
+            Show onboarding
+          </button>
+        </div>
+      </main>
+
+      <style jsx>{`
+        .land {
+          max-width: 920px;
+          margin: 0 auto;
+          padding: 48px 24px 96px;
+          min-height: 100vh;
+        }
+        .land-hero {
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 24px;
+          padding-bottom: 32px;
+          border-bottom: 1px solid var(--border);
+          margin-bottom: 32px;
+          flex-wrap: wrap;
+        }
+        .land-hero-text {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          max-width: 620px;
+        }
+        .land-eyebrow {
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+        .land-title {
+          font-size: 28px;
+          font-weight: 700;
+          color: var(--ink);
+          margin: 0;
+          line-height: 1.2;
+        }
+        .land-sub {
+          font-size: 15px;
+          color: var(--muted);
+          margin: 4px 0 0;
+        }
+        .land-cta {
+          height: 36px;
+          font-weight: 600;
+          background: var(--accent-soft);
+          border-color: var(--accent);
+          color: var(--accent-strong);
+        }
+        .land-main {
+          display: flex;
+          flex-direction: column;
+          gap: 24px;
+        }
+        .land-card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 22px 22px 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+        }
+        .land-card-header {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        .land-card-sub {
+          font-size: 12px;
+          color: var(--muted);
+          margin: 0;
+          line-height: 1.5;
+        }
+        .land-card-sub code {
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 11px;
+          color: var(--ink);
+        }
+        .land-cta-row {
+          display: flex;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        .cta {
+          font-family: inherit;
+          cursor: pointer;
+          border-radius: 10px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--ink);
+          font-size: 14px;
+          padding: 0 16px;
+          height: 40px;
+          transition: border-color 100ms ease, color 100ms ease, background 100ms ease;
+        }
+        .cta:disabled {
+          color: var(--faint);
+          cursor: not-allowed;
+        }
+        .cta-primary {
+          flex: 1 1 280px;
+          height: 44px;
+          font-weight: 600;
+          background: var(--accent);
+          border-color: var(--accent);
+          color: #ffffff;
+        }
+        .cta-primary:hover:not(:disabled) {
+          background: var(--accent-strong);
+          border-color: var(--accent-strong);
+        }
+        .cta-primary:disabled {
+          background: var(--accent-soft);
+          border-color: var(--border);
+          color: var(--accent-strong);
+        }
+        .cta-secondary {
+          flex: 0 0 auto;
+        }
+        .cta-secondary:hover:not(:disabled) {
+          border-color: var(--accent);
+          color: var(--accent-strong);
+        }
+        .prereq {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 12px;
+          color: var(--muted);
+        }
+        .prereq-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--faint);
+          display: inline-block;
+        }
+        .prereq-ok .prereq-dot {
+          background: var(--eval);
+        }
+        .prereq-ok .prereq-label {
+          color: var(--ink);
+        }
+        .prereq-warn .prereq-dot {
+          background: var(--tool);
+        }
+        .prereq-warn .prereq-label {
+          color: var(--ink);
+        }
+        .prereq-err .prereq-dot {
+          background: var(--danger);
+        }
+        .prereq-err .prereq-label {
+          color: var(--danger);
+        }
+        .prereq a {
+          color: inherit;
+          text-decoration: underline;
+        }
+        .tool-btn {
+          height: 32px;
+          padding: 0 14px;
+          border-radius: 8px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          font-size: 13px;
+          color: var(--ink);
+          cursor: pointer;
+          font-family: inherit;
+        }
+        .tool-btn:hover:not(:disabled) {
+          border-color: var(--accent);
+          color: var(--accent-strong);
+        }
+        .tool-btn:disabled {
+          color: var(--faint);
+          cursor: not-allowed;
+        }
+        .land-footer {
+          display: flex;
+          justify-content: flex-end;
+          margin-top: 8px;
+        }
+        .land-footer-link {
+          background: transparent;
+          border: 0;
+          font-family: inherit;
+          font-size: 12px;
+          color: var(--muted);
+          cursor: pointer;
+          padding: 6px 4px;
+          text-decoration: underline;
+          text-underline-offset: 3px;
+        }
+        .land-footer-link:hover {
+          color: var(--ink);
+        }
+      `}</style>
+    </div>
+  );
+}
