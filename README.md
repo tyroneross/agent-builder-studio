@@ -107,4 +107,4 @@ A Next.js 16 + React 19 app that stores all project state in `localStorage` (no 
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+FSL-1.1-MIT (Functional Source License — MIT Future). Free for internal use, education, research, and professional services; converts to MIT two years after each release. Competing commercial use is not permitted during the FSL window. See [LICENSE](./LICENSE).

@@ -3,104 +3,198 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadStorageConfig, TRUNCATION_MARKER_PREFIX } from "../lib/storage-config.mjs";
 
-// Pass 14 — Solo Run modal.
+// Solo Run modal — abstraction layer over the run-node API.
 //
-// What it does
-// - Pre-fills inputs from the node's saved fixture, falling back to
-//   upstream runCache outputs (Q1 resolved: editable, no separate "pull"
-//   button).
-// - Renders one field per declared input when `node.inputs[]` is non-empty;
-//   otherwise renders a single JSON textarea (the unfriendly fallback the
-//   roadmap calls out).
-// - Streams the response from POST /api/agent/run-node and shows a running
-//   byte count + the parsed JSON output.
-// - On `complete`, calls `onComplete(nodeId, runCacheEntry)` so the canvas
-//   can fold the entry into its localStorage-backed `runCache`.
+// Three modes:
+//   - "plain"      : single prose textarea. Sent as a string. The runtime
+//                    appends it as a "Solo-run inputs" block to the node
+//                    prompt, so any node accepts it.
+//   - "structured" : one textarea per declared `node.inputs[]` tag. Preset
+//                    chips load the saved fixture, the upstream run-cache,
+//                    or clear. "Suggest" asks Ollama to fill realistic
+//                    example values.
+//   - "json"       : raw JSON textarea — the original power-user fallback.
+//                    "Format" pretty-prints. "Suggest" asks Ollama for a
+//                    fixture-shaped JSON payload.
 //
-// What it does not do
-// - It does not write to localStorage itself; the canvas owns persistence.
-// - It does not mutate the project's canonical transcript; the runCache is
-//   the only side effect of a solo run.
-// - It does not currently support cancellation mid-stream beyond closing
-//   the modal (Pass 15 will add explicit cancel + step controls).
+// A constraints panel sits above the mode tabs and surfaces what the node
+// will do with the input: role, description, declared input tags, and
+// whether a saved fixture or upstream cache is available. This is the
+// "agent constraints" surface — the user knows what to type without
+// reading code.
+//
+// What this component still does NOT do:
+//   - It does not write to localStorage; the canvas page owns persistence
+//     via `onComplete(nodeId, runCacheEntry)`.
+//   - It does not mutate the project's canonical transcript.
+//   - It does not currently support cancellation mid-stream beyond closing
+//     the modal.
 
-function makeInitialValues(node, upstreamCache, edges) {
-  // Priority: saved fixture inputs → upstream runCache aggregated by
-  // upstream-node id → empty.
-  if (node.fixture && node.fixture.inputs != null) {
-    return { mode: "fields", values: cloneInputs(node.fixture.inputs, node) };
-  }
-
-  // Aggregate upstream-cache outputs into a fields/json starting point.
-  const upstreamIds = (edges ?? [])
-    .filter((e) => e.to === node.id)
-    .map((e) => e.from);
-  const aggregated = {};
-  for (const upId of upstreamIds) {
+function upstreamAggregate(node, upstreamCache, edges) {
+  const ids = (edges ?? []).filter((e) => e.to === node.id).map((e) => e.from);
+  const out = {};
+  for (const upId of ids) {
     const cached = upstreamCache?.[upId];
-    if (cached && cached.output != null) aggregated[upId] = cached.output;
+    if (cached && cached.output != null) out[upId] = cached.output;
   }
-
-  if (Array.isArray(node.inputs) && node.inputs.length > 0) {
-    // Map declared inputs to upstream output shape if names line up; otherwise
-    // leave blank for the user.
-    const values = {};
-    for (const tag of node.inputs) values[tag] = aggregated[tag] ?? "";
-    return { mode: "fields", values };
-  }
-
-  if (Object.keys(aggregated).length > 0) {
-    return { mode: "json", values: aggregated };
-  }
-  return { mode: "json", values: {} };
+  return out;
 }
 
-function cloneInputs(inputs, node) {
-  if (Array.isArray(node.inputs) && node.inputs.length > 0) {
-    const out = {};
-    for (const tag of node.inputs) {
-      out[tag] = inputs?.[tag] ?? "";
-    }
-    return out;
+function fixtureValuesFor(node) {
+  if (!node?.fixture || node.fixture.inputs == null) return null;
+  return node.fixture.inputs;
+}
+
+function declaredInputsOf(node) {
+  return Array.isArray(node?.inputs) ? node.inputs.filter(Boolean) : [];
+}
+
+function pickInitialMode(node, hasFixture) {
+  // Declared inputs → structured. Free-form node → plain. Fixture nudges
+  // toward structured if the fixture is structured.
+  const declared = declaredInputsOf(node);
+  if (declared.length > 0) return "structured";
+  const fx = fixtureValuesFor(node);
+  if (hasFixture && fx && typeof fx === "object" && !Array.isArray(fx)) {
+    return "json";
   }
-  return typeof inputs === "object" ? { ...inputs } : inputs;
+  return "plain";
+}
+
+function buildStructuredInitial(node, upstreamMap) {
+  const declared = declaredInputsOf(node);
+  const fx = fixtureValuesFor(node);
+  const values = {};
+  for (const tag of declared) {
+    if (fx && typeof fx === "object" && fx[tag] != null) {
+      values[tag] = fx[tag];
+    } else if (upstreamMap[tag] != null) {
+      values[tag] = upstreamMap[tag];
+    } else {
+      values[tag] = "";
+    }
+  }
+  return values;
+}
+
+function buildJsonInitial(node, upstreamMap) {
+  const fx = fixtureValuesFor(node);
+  if (fx != null) return JSON.stringify(fx, null, 2);
+  if (Object.keys(upstreamMap).length > 0) return JSON.stringify(upstreamMap, null, 2);
+  return "{}";
+}
+
+function buildPlainInitial(node) {
+  const fx = fixtureValuesFor(node);
+  if (typeof fx === "string") return fx;
+  return "";
+}
+
+function valueAsString(v) {
+  return typeof v === "string" ? v : JSON.stringify(v ?? "", null, 2);
 }
 
 export default function SoloRunModal({ project, node, onClose, onComplete }) {
   const upstreamCache = project?.runCache ?? {};
   const edges = project?.canvas?.edges ?? [];
-  const initial = useMemo(
-    () => makeInitialValues(node, upstreamCache, edges),
+
+  const declared = declaredInputsOf(node);
+  const hasFixture = !!fixtureValuesFor(node);
+  const upstreamMap = useMemo(
+    () => upstreamAggregate(node, upstreamCache, edges),
     [node, upstreamCache, edges],
   );
+  const hasUpstream = Object.keys(upstreamMap).length > 0;
 
-  const declaredInputs = Array.isArray(node.inputs) ? node.inputs : [];
-  const useFields = declaredInputs.length > 0;
-
-  const [fieldValues, setFieldValues] = useState(useFields ? initial.values : {});
-  const [jsonText, setJsonText] = useState(
-    useFields ? "" : JSON.stringify(initial.values ?? {}, null, 2),
+  const [mode, setMode] = useState(() => pickInitialMode(node, hasFixture));
+  const [plainText, setPlainText] = useState(() => buildPlainInitial(node));
+  const [fieldValues, setFieldValues] = useState(() =>
+    buildStructuredInitial(node, upstreamMap),
   );
+  const [jsonText, setJsonText] = useState(() => buildJsonInitial(node, upstreamMap));
   const [jsonError, setJsonError] = useState("");
+
   const [running, setRunning] = useState(false);
   const [bytes, setBytes] = useState(0);
   const [output, setOutput] = useState(null);
   const [error, setError] = useState("");
   const [warnings, setWarnings] = useState([]);
-  const abortRef = useRef(null);
 
-  // Reset state if the modal opens against a different node.
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestNote, setSuggestNote] = useState("");
+
+  const abortRef = useRef(null);
+  const suggestAbortRef = useRef(null);
+
+  // Mode switches carry the current input forward so the user can edit the
+  // same payload across representations — drafting JSON from scratch is hard,
+  // editing it is easy. Plain → JSON wraps the prose as a string; structured
+  // → JSON serializes the field map; JSON → structured tries to project keys
+  // back onto declared tags; JSON → plain falls back to a stringified blob.
+  function switchMode(next) {
+    if (next === mode) return;
+    if (next === "json") {
+      let payload;
+      if (mode === "plain") {
+        payload = plainText;
+      } else {
+        payload = { ...fieldValues };
+      }
+      setJsonText(JSON.stringify(payload, null, 2));
+      setJsonError("");
+    } else if (next === "structured") {
+      if (mode === "json") {
+        try {
+          const parsed = JSON.parse(jsonText || "{}");
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            const next2 = {};
+            for (const tag of declared) {
+              const v = parsed[tag];
+              next2[tag] = v == null ? fieldValues[tag] ?? "" : v;
+            }
+            setFieldValues(next2);
+          }
+        } catch {
+          /* keep current field values */
+        }
+      } else if (mode === "plain" && declared.length === 1) {
+        setFieldValues({ [declared[0]]: plainText });
+      }
+    } else {
+      // next === "plain"
+      if (mode === "json") {
+        try {
+          const parsed = JSON.parse(jsonText || "");
+          setPlainText(typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2));
+        } catch {
+          setPlainText(jsonText);
+        }
+      } else if (mode === "structured") {
+        if (declared.length === 1) {
+          setPlainText(valueAsString(fieldValues[declared[0]]));
+        } else {
+          setPlainText(JSON.stringify(fieldValues, null, 2));
+        }
+      }
+    }
+    setMode(next);
+  }
+
+  // Reset all derived state when the target node changes.
   useEffect(() => {
-    setFieldValues(useFields ? initial.values : {});
-    setJsonText(useFields ? "" : JSON.stringify(initial.values ?? {}, null, 2));
+    setMode(pickInitialMode(node, hasFixture));
+    setPlainText(buildPlainInitial(node));
+    setFieldValues(buildStructuredInitial(node, upstreamMap));
+    setJsonText(buildJsonInitial(node, upstreamMap));
     setJsonError("");
     setBytes(0);
     setOutput(null);
     setError("");
     setWarnings([]);
+    setSuggestNote("");
   }, [node.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Always release the in-flight reader if the modal unmounts mid-stream.
+  // Always release any in-flight readers when the modal unmounts.
   useEffect(() => {
     return () => {
       try {
@@ -108,11 +202,23 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
       } catch {
         /* no-op */
       }
+      try {
+        suggestAbortRef.current?.abort();
+      } catch {
+        /* no-op */
+      }
     };
   }, []);
 
-  function readInputs() {
-    if (useFields) return { ...fieldValues };
+  function readInputsForRun() {
+    if (mode === "plain") {
+      const t = plainText.trim();
+      return t === "" ? null : t;
+    }
+    if (mode === "structured") {
+      return { ...fieldValues };
+    }
+    // json
     if (!jsonText.trim()) return null;
     try {
       const parsed = JSON.parse(jsonText);
@@ -127,7 +233,7 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
   async function run() {
     let inputs;
     try {
-      inputs = readInputs();
+      inputs = readInputsForRun();
     } catch {
       return; // jsonError already set
     }
@@ -142,23 +248,14 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
     abortRef.current = ac;
 
     try {
-      // Pass 14.6 — pass the user's storage-config so the server applies the
-      // same byte cap when truncating cached outputs.
       const storageConfig = loadStorageConfig();
       const res = await fetch("/api/agent/run-node", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          project,
-          nodeId: node.id,
-          inputs,
-          storageConfig,
-        }),
+        body: JSON.stringify({ project, nodeId: node.id, inputs, storageConfig }),
         signal: ac.signal,
       });
-      if (!res.ok || !res.body) {
-        throw new Error(`run-node returned ${res.status}`);
-      }
+      if (!res.ok || !res.body) throw new Error(`run-node returned ${res.status}`);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -168,7 +265,6 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
         const { value, done } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        // SSE frames: "data: <json>\n\n"
         let idx;
         while ((idx = buf.indexOf("\n\n")) !== -1) {
           const frame = buf.slice(0, idx);
@@ -185,9 +281,7 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
         }
       }
     } catch (err) {
-      if (err?.name !== "AbortError") {
-        setError(err?.message || "request failed");
-      }
+      if (err?.name !== "AbortError") setError(err?.message || "request failed");
     } finally {
       setRunning(false);
       abortRef.current = null;
@@ -213,13 +307,114 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
         setWarnings((w) => [...w, evt.text]);
         break;
       case "complete":
-        if (evt.runCacheEntry) {
-          onComplete?.(node.id, evt.runCacheEntry);
-        }
+        if (evt.runCacheEntry) onComplete?.(node.id, evt.runCacheEntry);
         break;
       default:
-        // ignore the rest (warmup, level-start, node-start, uploads-loaded)
         break;
+    }
+  }
+
+  function applyFixture() {
+    const fx = fixtureValuesFor(node);
+    if (fx == null) {
+      setSuggestNote("no fixture saved on this node");
+      return;
+    }
+    if (mode === "plain") {
+      setPlainText(typeof fx === "string" ? fx : JSON.stringify(fx, null, 2));
+    } else if (mode === "structured") {
+      const next = {};
+      for (const tag of declared) {
+        next[tag] = typeof fx === "object" && fx?.[tag] != null ? fx[tag] : fieldValues[tag] ?? "";
+      }
+      setFieldValues(next);
+    } else {
+      setJsonText(JSON.stringify(fx, null, 2));
+      setJsonError("");
+    }
+    setSuggestNote("loaded saved fixture");
+  }
+
+  function applyUpstream() {
+    if (!hasUpstream) {
+      setSuggestNote("no upstream cached outputs available");
+      return;
+    }
+    if (mode === "plain") {
+      setPlainText(JSON.stringify(upstreamMap, null, 2));
+    } else if (mode === "structured") {
+      const next = { ...fieldValues };
+      for (const tag of declared) {
+        if (upstreamMap[tag] != null) next[tag] = upstreamMap[tag];
+      }
+      setFieldValues(next);
+    } else {
+      setJsonText(JSON.stringify(upstreamMap, null, 2));
+      setJsonError("");
+    }
+    setSuggestNote("loaded upstream cache");
+  }
+
+  function clearInputs() {
+    if (mode === "plain") setPlainText("");
+    else if (mode === "structured") {
+      const blank = {};
+      for (const tag of declared) blank[tag] = "";
+      setFieldValues(blank);
+    } else {
+      setJsonText("{}");
+      setJsonError("");
+    }
+    setSuggestNote("");
+  }
+
+  function formatJson() {
+    try {
+      const parsed = JSON.parse(jsonText);
+      setJsonText(JSON.stringify(parsed, null, 2));
+      setJsonError("");
+    } catch (err) {
+      setJsonError(err?.message || "invalid JSON");
+    }
+  }
+
+  async function suggest() {
+    setSuggesting(true);
+    setSuggestNote("");
+    const ac = new AbortController();
+    suggestAbortRef.current = ac;
+    try {
+      const res = await fetch("/api/agent/suggest-inputs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ project, nodeId: node.id, mode }),
+        signal: ac.signal,
+      });
+      const json = await res.json();
+      if (!json?.ok) {
+        setSuggestNote(json?.error || "could not generate a suggestion");
+        return;
+      }
+      const sug = json.suggestion;
+      if (mode === "plain") {
+        setPlainText(typeof sug === "string" ? sug : JSON.stringify(sug, null, 2));
+      } else if (mode === "structured") {
+        const next = {};
+        for (const tag of declared) {
+          const v = sug && typeof sug === "object" ? sug[tag] : null;
+          next[tag] = v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
+        }
+        setFieldValues(next);
+      } else {
+        setJsonText(JSON.stringify(sug, null, 2));
+        setJsonError("");
+      }
+      setSuggestNote("filled with model suggestion");
+    } catch (err) {
+      if (err?.name !== "AbortError") setSuggestNote(err?.message || "suggest failed");
+    } finally {
+      setSuggesting(false);
+      suggestAbortRef.current = null;
     }
   }
 
@@ -229,8 +424,18 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
     } catch {
       /* no-op */
     }
+    try {
+      suggestAbortRef.current?.abort();
+    } catch {
+      /* no-op */
+    }
     onClose?.();
   }
+
+  const description =
+    typeof node?.description === "string" && node.description.trim()
+      ? node.description.trim()
+      : null;
 
   return (
     <div className="solo-run-modal-backdrop" role="dialog" aria-modal="true" aria-label="Solo run">
@@ -246,30 +451,163 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
         </header>
 
         <div className="solo-run-modal-body">
+          <section className="solo-run-section solo-run-constraints">
+            <div className="solo-run-section-label">What this node expects</div>
+            <div className="solo-run-constraint-row">
+              <span className="solo-run-chip solo-run-chip-role">{node.role || "agent"}</span>
+              {declared.length > 0 ? (
+                declared.map((t) => (
+                  <span key={t} className="solo-run-chip">
+                    {t}
+                  </span>
+                ))
+              ) : (
+                <span className="solo-run-chip solo-run-chip-muted">free-form input</span>
+              )}
+              {hasFixture && (
+                <span className="solo-run-chip solo-run-chip-soft">fixture available</span>
+              )}
+              {hasUpstream && (
+                <span className="solo-run-chip solo-run-chip-soft">upstream cache available</span>
+              )}
+            </div>
+            {description && <p className="solo-run-constraint-text">{description}</p>}
+          </section>
+
           <section className="solo-run-section">
-            <div className="solo-run-section-label">Inputs</div>
-            {useFields ? (
-              <div className="solo-run-fields">
-                {declaredInputs.map((tag) => (
-                  <label key={tag} className="solo-run-field">
-                    <span className="solo-run-field-label">{tag}</span>
-                    <textarea
-                      className="solo-run-field-input"
-                      rows={3}
-                      value={
-                        typeof fieldValues[tag] === "string"
-                          ? fieldValues[tag]
-                          : JSON.stringify(fieldValues[tag] ?? "", null, 2)
-                      }
-                      onChange={(e) =>
-                        setFieldValues((v) => ({ ...v, [tag]: e.target.value }))
-                      }
-                      placeholder={`value for ${tag}`}
-                    />
-                  </label>
-                ))}
-              </div>
-            ) : (
+            <div className="solo-run-mode-tabs" role="tablist" aria-label="Input mode">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === "plain"}
+                className={`solo-run-mode-tab ${mode === "plain" ? "active" : ""}`}
+                onClick={() => switchMode("plain")}
+              >
+                Plain text
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === "structured"}
+                className={`solo-run-mode-tab ${mode === "structured" ? "active" : ""}`}
+                onClick={() => switchMode("structured")}
+                disabled={declared.length === 0}
+                title={
+                  declared.length === 0
+                    ? "this node has no declared input tags — use Plain text or Raw JSON"
+                    : undefined
+                }
+              >
+                Structured
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === "json"}
+                className={`solo-run-mode-tab ${mode === "json" ? "active" : ""}`}
+                onClick={() => switchMode("json")}
+              >
+                Raw JSON
+              </button>
+            </div>
+
+            <div className="solo-run-presets">
+              {hasFixture && (
+                <button
+                  type="button"
+                  className="solo-run-preset"
+                  onClick={applyFixture}
+                  disabled={running}
+                >
+                  Use saved fixture
+                </button>
+              )}
+              {hasUpstream && (
+                <button
+                  type="button"
+                  className="solo-run-preset"
+                  onClick={applyUpstream}
+                  disabled={running}
+                >
+                  Use upstream cache
+                </button>
+              )}
+              <button
+                type="button"
+                className="solo-run-preset solo-run-preset-suggest"
+                onClick={suggest}
+                disabled={running || suggesting}
+                title="Ask the local model for a realistic example based on this node's role and description"
+              >
+                {suggesting ? "Suggesting…" : "Suggest"}
+              </button>
+              {mode === "json" && (
+                <button
+                  type="button"
+                  className="solo-run-preset"
+                  onClick={formatJson}
+                  disabled={running}
+                >
+                  Format
+                </button>
+              )}
+              <button
+                type="button"
+                className="solo-run-preset solo-run-preset-clear"
+                onClick={clearInputs}
+                disabled={running}
+              >
+                Clear
+              </button>
+            </div>
+
+            {mode === "plain" && (
+              <>
+                <textarea
+                  className="solo-run-json"
+                  rows={6}
+                  value={plainText}
+                  onChange={(e) => setPlainText(e.target.value)}
+                  placeholder="Type a test query in plain English. The node will receive it as its user input."
+                />
+                <p className="solo-run-hint">
+                  Sent as a string. The runtime appends it to the node prompt as a
+                  &ldquo;Solo-run inputs&rdquo; block, so any node accepts it.
+                </p>
+              </>
+            )}
+
+            {mode === "structured" && (
+              <>
+                {declared.length > 0 ? (
+                  <div className="solo-run-fields">
+                    {declared.map((tag) => (
+                      <label key={tag} className="solo-run-field">
+                        <span className="solo-run-field-label">{tag}</span>
+                        <textarea
+                          className="solo-run-field-input"
+                          rows={3}
+                          value={valueAsString(fieldValues[tag])}
+                          onChange={(e) =>
+                            setFieldValues((v) => ({ ...v, [tag]: e.target.value }))
+                          }
+                          placeholder={`value for ${tag}`}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="solo-run-hint">
+                    This node has no declared input tags. Switch to Plain text or Raw JSON.
+                  </p>
+                )}
+                <p className="solo-run-hint">
+                  One field per declared input tag. Sent as an object keyed by tag name.
+                </p>
+              </>
+            )}
+
+            {mode === "json" && (
               <>
                 <textarea
                   className="solo-run-json"
@@ -279,15 +617,41 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
                     setJsonText(e.target.value);
                     setJsonError("");
                   }}
-                  placeholder="JSON inputs (this node has no declared input tags)"
+                  placeholder='{ "field": "value" }'
                 />
                 {jsonError && <div className="solo-run-error">JSON: {jsonError}</div>}
+                <p className="solo-run-hint">
+                  Sent as parsed JSON. Use the &ldquo;Suggest&rdquo; button if you want a
+                  fixture-shaped starting point.
+                </p>
               </>
             )}
-            <p className="solo-run-hint">
-              Inputs pre-fill from this node&apos;s saved fixture, then from upstream cached
-              outputs. Edit them freely — solo run never touches the project transcript.
-            </p>
+
+            {suggestNote && <div className="solo-run-note">{suggestNote}</div>}
+
+            {mode !== "json" && (
+              <details className="solo-run-wire">
+                <summary>Will be sent as</summary>
+                <pre className="solo-run-output solo-run-wire-preview">
+                  {(() => {
+                    try {
+                      let payload;
+                      if (mode === "plain") {
+                        payload = plainText;
+                      } else {
+                        payload = { ...fieldValues };
+                      }
+                      return JSON.stringify(payload, null, 2);
+                    } catch (err) {
+                      return `// preview error: ${err?.message || "unknown"}`;
+                    }
+                  })()}
+                </pre>
+                <p className="solo-run-hint">
+                  Switch to Raw JSON to edit the wire payload directly.
+                </p>
+              </details>
+            )}
           </section>
 
           {(running || bytes > 0 || output != null || error) && (
@@ -353,7 +717,7 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: 12px;
-          width: min(620px, 100%);
+          width: min(680px, 100%);
           max-height: calc(100vh - 48px);
           display: flex;
           flex-direction: column;
@@ -388,6 +752,105 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
           font-size: 11px;
           letter-spacing: 0.08em;
           text-transform: uppercase;
+          color: var(--muted);
+        }
+        .solo-run-constraints {
+          padding: 12px 14px;
+          background: var(--surface-muted);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          gap: 8px;
+        }
+        .solo-run-constraint-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .solo-run-constraint-text {
+          font-size: 12.5px;
+          line-height: 1.45;
+          color: var(--ink);
+          margin: 4px 0 0 0;
+        }
+        .solo-run-chip {
+          font-size: 11px;
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          padding: 2px 8px;
+          border-radius: 999px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--ink);
+        }
+        .solo-run-chip-role {
+          background: var(--accent);
+          color: #fff;
+          border-color: var(--accent);
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+        }
+        .solo-run-chip-soft {
+          background: transparent;
+          color: var(--muted);
+          border-style: dashed;
+        }
+        .solo-run-chip-muted {
+          color: var(--muted);
+          font-style: italic;
+        }
+        .solo-run-mode-tabs {
+          display: inline-flex;
+          gap: 0;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 2px;
+          align-self: flex-start;
+        }
+        .solo-run-mode-tab {
+          font-size: 12px;
+          padding: 5px 12px;
+          border-radius: 6px;
+          border: 0;
+          background: transparent;
+          color: var(--muted);
+          cursor: pointer;
+        }
+        .solo-run-mode-tab.active {
+          background: var(--surface);
+          color: var(--ink);
+          font-weight: 600;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+        }
+        .solo-run-mode-tab:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+        .solo-run-presets {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .solo-run-preset {
+          font-size: 11.5px;
+          padding: 4px 10px;
+          border-radius: 6px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--ink);
+          cursor: pointer;
+        }
+        .solo-run-preset:hover:not(:disabled) {
+          background: var(--surface-muted);
+        }
+        .solo-run-preset:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .solo-run-preset-suggest {
+          border-color: var(--accent);
+          color: var(--accent);
+          font-weight: 600;
+        }
+        .solo-run-preset-clear {
           color: var(--muted);
         }
         .solo-run-fields {
@@ -430,6 +893,31 @@ export default function SoloRunModal({ project, node, onClose, onComplete }) {
           font-size: 12px;
           color: var(--muted);
           margin: 0;
+        }
+        .solo-run-note {
+          font-size: 11.5px;
+          color: var(--muted);
+          font-style: italic;
+        }
+        .solo-run-wire {
+          font-size: 12px;
+        }
+        .solo-run-wire summary {
+          cursor: pointer;
+          color: var(--muted);
+          font-size: 11px;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          padding: 4px 0;
+          user-select: none;
+        }
+        .solo-run-wire summary:hover {
+          color: var(--ink);
+        }
+        .solo-run-wire-preview {
+          max-height: 180px;
+          margin-top: 6px;
+          opacity: 0.85;
         }
         .solo-run-meta {
           font-size: 12px;
