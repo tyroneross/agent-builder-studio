@@ -5,15 +5,17 @@ import test from "node:test";
 
 const contractPath = join(process.cwd(), "plugin", "references", "templates", "nightly-doe-contract.json");
 
-test("nightly DOE contract stays design-only and read-only by default", async () => {
+test("nightly DOE contract: manual runner available, nightly flag stays off, repo policy read-only", async () => {
   const contract = JSON.parse(await readFile(contractPath, "utf8"));
 
   assert.equal(contract.schemaVersion, "agent-builder.nightly-doe-contract.v1");
-  assert.equal(contract.status, "design-only");
+  assert.equal(contract.status, "manual-runner-available");
   assert.equal(contract.featureFlag.id, "nightlyLocalDoe");
   assert.equal(contract.featureFlag.enabled, false);
   assert.equal(contract.featureFlag.defaultState, "off");
-  assert.equal(contract.runnerStatus.executableRunnerIncluded, false);
+  assert.equal(contract.runnerStatus.executableRunnerIncluded, true);
+  assert.equal(contract.runnerStatus.runner, "scripts/doe/run-local-json-doe.mjs");
+  assert.match(contract.runnerStatus.invocation, /manual only/);
   assert.equal(contract.targetRepoPolicy.defaultAccess, "read-only");
   assert.equal(contract.targetRepoPolicy.writesAllowed, false);
   assert.equal(contract.targetRepoPolicy.requiresExplicitApprovalForPatches, true);

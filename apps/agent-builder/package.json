@@ -22,7 +22,8 @@
     "sandbox:e2e": "node scripts/run-sandbox-e2e.mjs",
     "sandbox:score": "node scripts/run-sandbox-e2e.mjs --score --llm=fixture",
     "start": "next start",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "doe:local-json": "node scripts/doe/run-local-json-doe.mjs"
   },
   "dependencies": {
     "@tyroneross/agent-spec": "*",

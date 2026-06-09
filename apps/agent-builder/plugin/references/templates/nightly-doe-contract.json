@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent-builder.nightly-doe-contract.v1",
-  "status": "design-only",
+  "status": "manual-runner-available",
   "featureFlag": {
     "id": "nightlyLocalDoe",
     "enabled": false,
@@ -9,8 +9,11 @@
   },
   "purpose": "Define how a future local LLM DOE automation should inspect multiple repos overnight and produce morning recommendations.",
   "runnerStatus": {
-    "executableRunnerIncluded": false,
-    "reason": "Hold until the user explicitly approves the actual nightly runner."
+    "executableRunnerIncluded": true,
+    "runner": "scripts/doe/run-local-json-doe.mjs",
+    "engine": "scripts/doe/doe.py + scripts/doe/objectives.py (numpy-only, from multi-goal)",
+    "invocation": "npm run doe:local-json (manual only; the nightlyLocalDoe flag stays off)",
+    "reason": "Manual runner shipped 2026-06-09 (follow-up item 02). Nightly automation still requires explicit user approval to enable the flag."
   },
   "targetRepoPolicy": {
     "defaultAccess": "read-only",

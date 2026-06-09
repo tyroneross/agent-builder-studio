@@ -1,0 +1,463 @@
+{
+  "schemaVersion": "agent-builder.local-json-doe.v1",
+  "ranAt": "2026-06-09T23:21:27.812Z",
+  "mode": "fixture",
+  "engine": "scripts/doe/doe.py (multi-goal, numpy-only)",
+  "design": {
+    "type": "full factorial 2^3",
+    "seed": 42,
+    "factors": [
+      {
+        "name": "backend",
+        "low": "ollama",
+        "high": "mlx"
+      },
+      {
+        "name": "schema_in_prompt",
+        "low": false,
+        "high": true
+      },
+      {
+        "name": "strict_suffix",
+        "low": false,
+        "high": true
+      }
+    ]
+  },
+  "objectives": [
+    {
+      "name": "pass_rate",
+      "direction": "higher",
+      "weight": 0.7
+    },
+    {
+      "name": "mean_latency_ms",
+      "direction": "lower",
+      "weight": 0.3
+    }
+  ],
+  "models": {
+    "ollama": "llama3.2:3b",
+    "mlx": "mlx-community/Llama-3.2-3B-Instruct-4bit"
+  },
+  "replicates": 1,
+  "tasksPerCondition": 6,
+  "environment": {
+    "fixture": true
+  },
+  "runs": [
+    {
+      "run_id": 0,
+      "factors": {
+        "backend": "ollama",
+        "schema_in_prompt": false,
+        "strict_suffix": false
+      },
+      "values": {
+        "pass_rate": 0,
+        "mean_latency_ms": 0
+      },
+      "detail": {
+        "pass_rate": 0,
+        "mean_latency_ms": 0,
+        "passes": 0,
+        "total": 6,
+        "failures": [
+          {
+            "task": "meeting-extract",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "task-triage",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "schedule-parse",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "contact-extract",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "decision-structure",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "metric-extract",
+            "reason": "not-a-json-object"
+          }
+        ]
+      }
+    },
+    {
+      "run_id": 1,
+      "factors": {
+        "backend": "ollama",
+        "schema_in_prompt": false,
+        "strict_suffix": true
+      },
+      "values": {
+        "pass_rate": 0,
+        "mean_latency_ms": 0
+      },
+      "detail": {
+        "pass_rate": 0,
+        "mean_latency_ms": 0,
+        "passes": 0,
+        "total": 6,
+        "failures": [
+          {
+            "task": "meeting-extract",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "task-triage",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "schedule-parse",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "contact-extract",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "decision-structure",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "metric-extract",
+            "reason": "not-a-json-object"
+          }
+        ]
+      }
+    },
+    {
+      "run_id": 2,
+      "factors": {
+        "backend": "ollama",
+        "schema_in_prompt": true,
+        "strict_suffix": false
+      },
+      "values": {
+        "pass_rate": 0,
+        "mean_latency_ms": 0
+      },
+      "detail": {
+        "pass_rate": 0,
+        "mean_latency_ms": 0,
+        "passes": 0,
+        "total": 6,
+        "failures": [
+          {
+            "task": "meeting-extract",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "task-triage",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "schedule-parse",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "contact-extract",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "decision-structure",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "metric-extract",
+            "reason": "not-a-json-object"
+          }
+        ]
+      }
+    },
+    {
+      "run_id": 3,
+      "factors": {
+        "backend": "ollama",
+        "schema_in_prompt": true,
+        "strict_suffix": true
+      },
+      "values": {
+        "pass_rate": 1,
+        "mean_latency_ms": 0
+      },
+      "detail": {
+        "pass_rate": 1,
+        "mean_latency_ms": 0,
+        "passes": 6,
+        "total": 6,
+        "failures": []
+      }
+    },
+    {
+      "run_id": 4,
+      "factors": {
+        "backend": "mlx",
+        "schema_in_prompt": false,
+        "strict_suffix": false
+      },
+      "values": {
+        "pass_rate": 0,
+        "mean_latency_ms": 0
+      },
+      "detail": {
+        "pass_rate": 0,
+        "mean_latency_ms": 0,
+        "passes": 0,
+        "total": 6,
+        "failures": [
+          {
+            "task": "meeting-extract",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "task-triage",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "schedule-parse",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "contact-extract",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "decision-structure",
+            "reason": "not-a-json-object"
+          },
+          {
+            "task": "metric-extract",
+            "reason": "not-a-json-object"
+          }
+        ]
+      }
+    },
+    {
+      "run_id": 5,
+      "factors": {
+        "backend": "mlx",
+        "schema_in_prompt": false,
+        "strict_suffix": true
+      },
+      "values": {
+        "pass_rate": 1,
+        "mean_latency_ms": 0
+      },
+      "detail": {
+        "pass_rate": 1,
+        "mean_latency_ms": 0,
+        "passes": 6,
+        "total": 6,
+        "failures": []
+      }
+    },
+    {
+      "run_id": 6,
+      "factors": {
+        "backend": "mlx",
+        "schema_in_prompt": true,
+        "strict_suffix": false
+      },
+      "values": {
+        "pass_rate": 1,
+        "mean_latency_ms": 0
+      },
+      "detail": {
+        "pass_rate": 1,
+        "mean_latency_ms": 0,
+        "passes": 6,
+        "total": 6,
+        "failures": []
+      }
+    },
+    {
+      "run_id": 7,
+      "factors": {
+        "backend": "mlx",
+        "schema_in_prompt": true,
+        "strict_suffix": true
+      },
+      "values": {
+        "pass_rate": 1,
+        "mean_latency_ms": 0
+      },
+      "detail": {
+        "pass_rate": 1,
+        "mean_latency_ms": 0,
+        "passes": 6,
+        "total": 6,
+        "failures": []
+      }
+    }
+  ],
+  "analysis": {
+    "summary": {
+      "design_type": "full",
+      "n_runs": 8,
+      "n_factors": 3,
+      "selection": "scalarize"
+    },
+    "per_objective": {
+      "pass_rate": {
+        "ranked_effects": [
+          {
+            "term": "schema_in_prompt",
+            "kind": "main",
+            "effect": 0.25000000000000006,
+            "abs_effect": 0.25000000000000006
+          },
+          {
+            "term": "backend",
+            "kind": "main",
+            "effect": 0.25,
+            "abs_effect": 0.25
+          },
+          {
+            "term": "strict_suffix",
+            "kind": "main",
+            "effect": 0.24999999999999986,
+            "abs_effect": 0.24999999999999986
+          },
+          {
+            "term": "backend × schema_in_prompt",
+            "kind": "interaction",
+            "effect": -5.644483520826474e-17,
+            "abs_effect": 5.644483520826474e-17
+          },
+          {
+            "term": "backend × strict_suffix",
+            "kind": "interaction",
+            "effect": 1.4748252329599986e-17,
+            "abs_effect": 1.4748252329599986e-17
+          },
+          {
+            "term": "schema_in_prompt × strict_suffix",
+            "kind": "interaction",
+            "effect": 7.809358425692758e-18,
+            "abs_effect": 7.809358425692758e-18
+          }
+        ],
+        "r2": 0.7499999999999999,
+        "intercept": 0.4999999999999999,
+        "direction": "higher"
+      },
+      "mean_latency_ms": {
+        "ranked_effects": [
+          {
+            "term": "backend",
+            "kind": "main",
+            "effect": 0,
+            "abs_effect": 0
+          },
+          {
+            "term": "schema_in_prompt",
+            "kind": "main",
+            "effect": 0,
+            "abs_effect": 0
+          },
+          {
+            "term": "strict_suffix",
+            "kind": "main",
+            "effect": 0,
+            "abs_effect": 0
+          },
+          {
+            "term": "backend × schema_in_prompt",
+            "kind": "interaction",
+            "effect": 0,
+            "abs_effect": 0
+          },
+          {
+            "term": "backend × strict_suffix",
+            "kind": "interaction",
+            "effect": 0,
+            "abs_effect": 0
+          },
+          {
+            "term": "schema_in_prompt × strict_suffix",
+            "kind": "interaction",
+            "effect": 0,
+            "abs_effect": 0
+          }
+        ],
+        "r2": 1,
+        "intercept": 0,
+        "direction": "lower"
+      }
+    },
+    "selection": {
+      "method": "scalarize",
+      "bounds": {
+        "pass_rate": {
+          "min": 0,
+          "max": 1
+        },
+        "mean_latency_ms": {
+          "min": 0,
+          "max": 0
+        }
+      },
+      "scores": [
+        {
+          "run_id": 0,
+          "score": 0.3
+        },
+        {
+          "run_id": 1,
+          "score": 0.3
+        },
+        {
+          "run_id": 2,
+          "score": 0.3
+        },
+        {
+          "run_id": 3,
+          "score": 1
+        },
+        {
+          "run_id": 4,
+          "score": 0.3
+        },
+        {
+          "run_id": 5,
+          "score": 1
+        },
+        {
+          "run_id": 6,
+          "score": 1
+        },
+        {
+          "run_id": 7,
+          "score": 1
+        }
+      ],
+      "best_run_id": 3,
+      "best_score": 1,
+      "pareto_front": [
+        3,
+        5,
+        6,
+        7
+      ],
+      "best_values": {
+        "pass_rate": 1,
+        "mean_latency_ms": 0
+      }
+    },
+    "best_run": 3,
+    "best_factors": {
+      "backend": "ollama",
+      "schema_in_prompt": true,
+      "strict_suffix": true
+    }
+  }
+}
