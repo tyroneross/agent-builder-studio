@@ -13,6 +13,7 @@ import {
   probeMlx,
   probeOllama,
   runCascade,
+  createCloudBudget,
 } from "@tyroneross/local-llm";
 import { NODE_ROLE, roleBriefFor, roleNameFor, effectiveTierOverride } from "./cos-roles.mjs";
 import { recordTelemetry, flushTelemetry } from "./cos-telemetry.mjs";
@@ -411,6 +412,7 @@ async function runOneNode({
   onEvent,
   runDir,
   transcript,
+  cloudBudget = null,
 }) {
   onEvent({ type: "node-start", key: node.key, name: node.name, role: node.role });
 
@@ -499,6 +501,10 @@ async function runOneNode({
     // run's JSONL destination. The package's chat() is the SAME module instance
     // the test's setChatImpl() mutates, so no chat injection is needed.
     recordTelemetry: (rec) => recordTelemetry(runDir, rec),
+    // Run-shared cloud-token budget (NOT user-facing): derived from
+    // cascadePolicy().maxCloudTokens; once spent, cloud lanes are skipped
+    // gracefully and the cascade degrades to local-only.
+    cloudBudget,
   });
   const ms = Date.now() - t0;
 
@@ -683,6 +689,9 @@ export async function runChiefOfStaff({
     (schedule ?? "").trim() || (await readFile(SAMPLE_INPUT, "utf8"));
 
   const policy = cascadePolicy({ allowCloud, maxCloudTokens });
+  // One budget object per run, shared by every node's cascade. Automatic —
+  // derived from the policy's built-in maxCloudTokens, zero user setup.
+  const cloudBudget = createCloudBudget(policy);
 
   const transcript = {
     startedAt: new Date().toISOString(),
@@ -757,10 +766,13 @@ export async function runChiefOfStaff({
           onEvent,
           runDir,
           transcript,
+          cloudBudget,
         });
       }),
     );
   }
+
+  transcript.cloudBudget = { maxCloudTokens: cloudBudget.maxCloudTokens, used: cloudBudget.used };
 
   await flushTelemetry();
   const brief = buildBrief({ model: model ?? "(cascade)", transcript });

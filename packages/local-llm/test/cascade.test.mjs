@@ -105,3 +105,91 @@ test("runCascade fires one parse-retry on malformed JSON then succeeds", async (
   assert.deepEqual(envelope.parsed, { ok: true });
   assert.equal(n, 2, "exactly one parse-retry");
 });
+
+// --- cloud-token budget enforcement (follow-up item 10) ---
+
+import { createCloudBudget, FAILURE_REASONS } from "../index.mjs";
+
+test("createCloudBudget derives max from cascadePolicy output", () => {
+  const b = createCloudBudget(cascadePolicy({ allowCloud: "on-failure" }));
+  assert.equal(b.maxCloudTokens, 200000);
+  assert.equal(b.used, 0);
+  const never = createCloudBudget(cascadePolicy({ allowCloud: "never" }));
+  assert.equal(never.maxCloudTokens, 0);
+});
+
+test("runCascade meters cloud tokens into the shared budget", async () => {
+  const fakeChat = async ({ provider, model }) => (
+    { ok: true, text: '{"x":1}', parsed: { x: 1 }, raw: {}, tokens_in: 70, tokens_out: 30, provider, model }
+  );
+  const budget = createCloudBudget({ maxCloudTokens: 1000 });
+  const cascade = [{ provider: "groq", model: "g", lane: "cloud" }];
+  const { envelope } = await runCascade({ node: { key: "n" }, cascade, system: "s", userMsg: "u", chat: fakeChat, cloudBudget: budget });
+  assert.equal(envelope.ok, true);
+  assert.equal(budget.used, 100, "tokens_in + tokens_out accrued");
+});
+
+test("runCascade skips cloud lanes once the budget is spent and falls to local", async () => {
+  const calls = [];
+  const fakeChat = async ({ provider, model }) => {
+    calls.push(provider);
+    return { ok: true, text: '{"x":1}', parsed: { x: 1 }, raw: {}, tokens_in: 1, tokens_out: 1, provider, model };
+  };
+  const budget = { maxCloudTokens: 100, used: 100 }; // already spent
+  const events = [];
+  const telemetry = [];
+  const cascade = [
+    { provider: "groq", model: "g", lane: "cloud" },
+    { provider: "anthropic", model: "a", lane: "cloud-secondary" },
+    { provider: "ollama", model: "o", lane: "local-ollama" },
+  ];
+  const { envelope, step } = await runCascade({
+    node: { key: "n" }, cascade, system: "s", userMsg: "u", chat: fakeChat,
+    cloudBudget: budget,
+    onEvent: (e) => events.push(e),
+    recordTelemetry: (r) => telemetry.push(r),
+  });
+  assert.equal(envelope.ok, true, "run still succeeds via local lane");
+  assert.equal(step.lane, "local-ollama");
+  assert.deepEqual(calls, ["ollama"], "no cloud provider was dialed");
+  const skips = events.filter((e) => e.type === "cascade-skip");
+  assert.equal(skips.length, 2, "both cloud lanes skipped");
+  assert.ok(skips.every((e) => e.reason === FAILURE_REASONS.CLOUD_BUDGET));
+  const skipRecords = telemetry.filter((r) => r.fallback_reason === FAILURE_REASONS.CLOUD_BUDGET);
+  assert.equal(skipRecords.length, 2, "skips recorded in telemetry");
+});
+
+test("runCascade with exhausted budget and cloud-only cascade returns graceful failure (no throw)", async () => {
+  const budget = { maxCloudTokens: 10, used: 10 };
+  const cascade = [{ provider: "groq", model: "g", lane: "cloud" }];
+  const { envelope, step } = await runCascade({
+    node: { key: "n" }, cascade, system: "s", userMsg: "u",
+    chat: async () => { throw new Error("should not be called"); },
+    cloudBudget: budget,
+  });
+  assert.equal(step, null);
+  assert.equal(envelope.ok, false);
+  assert.equal(envelope.reason, FAILURE_REASONS.CLOUD_BUDGET);
+});
+
+test("budget crossing mid-cascade: first cloud lane runs, later cloud lanes skip", async () => {
+  const calls = [];
+  const fakeChat = async ({ provider, model }) => {
+    calls.push(provider);
+    // First cloud call burns the whole budget but fails to parse -> cascade advances.
+    if (provider === "groq") return { ok: false, error: "boom", provider, model, reason: "http-error" };
+    return { ok: true, text: '{"x":1}', parsed: { x: 1 }, raw: {}, tokens_in: 2, tokens_out: 2, provider, model };
+  };
+  // groq failure records tokens_in/out null -> no accrual; simulate spend via used.
+  const budget = { maxCloudTokens: 5, used: 0 };
+  const cascade = [
+    { provider: "groq", model: "g", lane: "cloud" },
+    { provider: "anthropic", model: "a", lane: "cloud-secondary" },
+    { provider: "ollama", model: "o", lane: "local-ollama" },
+  ];
+  // Pre-spend so the second cloud lane crosses the threshold after groq runs.
+  budget.used = 5;
+  const { step } = await runCascade({ node: { key: "n" }, cascade, system: "s", userMsg: "u", chat: fakeChat, cloudBudget: budget });
+  assert.deepEqual(calls, ["ollama"], "exhausted before loop: all cloud lanes skipped");
+  assert.equal(step.lane, "local-ollama");
+});

@@ -14,6 +14,30 @@ import { FAILURE_REASONS } from "./failure-reasons.mjs";
 const noop = () => {};
 
 /**
+ * Create a mutable cloud-token budget shared across runCascade calls in one
+ * run. Derived from cascadePolicy's maxCloudTokens — NOT a user-facing
+ * setting. `used` accrues tokens_in + tokens_out from every cloud-lane
+ * telemetry record; once `used >= maxCloudTokens`, remaining cloud lanes are
+ * skipped gracefully (the cascade falls through to whatever local lanes
+ * remain) and a `cloud-budget-exhausted` telemetry record is written.
+ *
+ * @param {{maxCloudTokens?: number}} [policy]  output of cascadePolicy()
+ * @returns {{maxCloudTokens: number, used: number}}
+ */
+export function createCloudBudget(policy = {}) {
+  const max = Number.isFinite(policy.maxCloudTokens) ? policy.maxCloudTokens : 0;
+  return { maxCloudTokens: max, used: 0 };
+}
+
+function isCloudLane(lane) {
+  return typeof lane === "string" && lane.startsWith("cloud");
+}
+
+function cloudBudgetExhausted(budget) {
+  return Boolean(budget) && Number.isFinite(budget.maxCloudTokens) && budget.used >= budget.maxCloudTokens;
+}
+
+/**
  * Try one cascade step, with a single parse-retry on malformed-JSON success.
  *
  * @param {object} args
@@ -131,12 +155,46 @@ export async function runCascade({
   onEvent = noop,
   recordTelemetry = noop,
   chat = defaultChat,
+  cloudBudget = null,
 }) {
+  // Meter cloud spend through the telemetry seam: every record from a cloud
+  // lane (including parse-retries) carries tokens_in/tokens_out, so accruing
+  // here captures all cloud calls without touching tryStep.
+  const meteredTelemetry = !cloudBudget
+    ? recordTelemetry
+    : (rec) => {
+        if (rec && isCloudLane(rec.lane)) {
+          cloudBudget.used += (rec.tokens_in ?? 0) + (rec.tokens_out ?? 0);
+        }
+        recordTelemetry(rec);
+      };
+
   let attempt = 0;
   let lastErr = null;
   for (const step of cascade) {
     attempt += 1;
     const payload = { node: node.key, role: node.role ?? role ?? null, attempt, lane: step.lane, provider: step.provider, model: step.model };
+
+    // Graceful cloud-budget enforcement: skip (never hard-fail) cloud lanes
+    // once the cumulative cloud-token budget is spent. Local lanes are never
+    // budget-gated, so the cascade degrades to local-only.
+    if (cloudBudget && isCloudLane(step.lane) && cloudBudgetExhausted(cloudBudget)) {
+      onEvent({ type: "cascade-skip", reason: FAILURE_REASONS.CLOUD_BUDGET, ...payload });
+      meteredTelemetry({
+        ...payload,
+        tokens_in: null,
+        tokens_out: null,
+        ms: 0,
+        parsed_ok: false,
+        fallback_reason: FAILURE_REASONS.CLOUD_BUDGET,
+        parse_retry: false,
+        cloud_tokens_used: cloudBudget.used,
+        cloud_tokens_max: cloudBudget.maxCloudTokens,
+      });
+      lastErr = { ok: false, reason: FAILURE_REASONS.CLOUD_BUDGET, error: `cloud budget exhausted (${cloudBudget.used}/${cloudBudget.maxCloudTokens} tokens)` };
+      continue;
+    }
+
     onEvent({ type: "cascade-attempt", ...payload });
     onEvent({ type: "node-step", key: node.key, ...payload });
 
@@ -149,7 +207,7 @@ export async function runCascade({
       role: role ?? node.role,
       timeoutMs,
       onChunk: (_chunk, totalBytes) => onEvent({ type: "node-chunk", key: node.key, bytes: totalBytes }),
-      recordTelemetry,
+      recordTelemetry: meteredTelemetry,
       nodeKey: node.key,
       attempt,
       chat,

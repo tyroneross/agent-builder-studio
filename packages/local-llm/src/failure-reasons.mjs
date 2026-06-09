@@ -9,5 +9,6 @@ export const FAILURE_REASONS = Object.freeze({
   PROVIDER_DISABLED: "provider-disabled",
   MISSING_KEY: "missing-api-key",
   HEALTH: "health-check-failed",
+  CLOUD_BUDGET: "cloud-budget-exhausted",
   UNKNOWN: "unknown",
 });

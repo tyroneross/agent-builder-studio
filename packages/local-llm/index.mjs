@@ -42,7 +42,7 @@ export {
 } from "./src/tiers.mjs";
 
 // Generic cascade executor (domain-free; inject telemetry/events)
-export { runCascade, tryStep } from "./src/cascade.mjs";
+export { runCascade, tryStep, createCloudBudget } from "./src/cascade.mjs";
 
 // Failure taxonomy
 export { FAILURE_REASONS } from "./src/failure-reasons.mjs";
