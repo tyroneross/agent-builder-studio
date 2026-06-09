@@ -1,0 +1,9 @@
+node_modules/
+.next/
+.DS_Store
+.build-loop/
+.rally/
+.navgator/
+.bookmark/
+.claude/
+*.log
