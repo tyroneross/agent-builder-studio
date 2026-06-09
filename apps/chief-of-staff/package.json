@@ -20,5 +20,8 @@
   "devDependencies": {
     "v0-sdk": "^0.16.4"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@tyroneross/local-llm": "*"
+  }
 }
