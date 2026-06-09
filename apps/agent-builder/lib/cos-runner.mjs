@@ -1,14 +1,19 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chat, ollamaTags, ollamaPs } from "./providers/index.mjs";
 import {
+  chat,
+  ollamaTags,
+  ollamaPs,
   NODE_ROUTING,
+  TIER_LOCAL_MODELS,
   cascadePolicy,
   resolveCascade,
   nodeKeyForTier,
   FAILURE_REASONS,
-} from "./cos-config.mjs";
+  probeMlx,
+  probeOllama,
+} from "@tyroneross/local-llm";
 import { NODE_ROLE, roleBriefFor, roleNameFor, effectiveTierOverride } from "./cos-roles.mjs";
 import { recordTelemetry, flushTelemetry } from "./cos-telemetry.mjs";
 import { summarizeFile } from "./cos-summary.mjs";
@@ -30,7 +35,18 @@ export const DEFAULT_GOAL =
 
 // Re-export for back-compat with any code that imported from here previously.
 export { ollamaTags };
-export { NODE_ROUTING, cascadePolicy, resolveCascade } from "./cos-config.mjs";
+export { NODE_ROUTING, cascadePolicy, resolveCascade } from "@tyroneross/local-llm";
+
+// Probe local lanes ONCE per process and cache. Used to drop an unhealthy local
+// lane from the cascade (MLX-first: if mlx_lm.server is down, mlx is skipped and
+// Ollama becomes the local primary — the local mirror of cloud key-gating).
+let _localHealth = null;
+async function getLocalHealth() {
+  if (_localHealth) return _localHealth;
+  const [mlx, ollama] = await Promise.all([probeMlx(), probeOllama()]);
+  _localHealth = { mlx: mlx.healthy, ollama: ollama.healthy };
+  return _localHealth;
+}
 
 const HARD_RULES = [
   "You are a local Chief of Staff agent. No web access. No invented data.",
@@ -591,7 +607,10 @@ async function runOneNode({
     const sibling = nodeKeyForTier(node.tierOverride);
     if (sibling) cascadeKey = sibling;
   }
-  const cascade = resolveCascade(cascadeKey, policy, modelOverride);
+  // MLX-first: drop an unhealthy local lane (mlx then ollama) just as a missing
+  // cloud key drops a cloud lane. Probe is cached per process.
+  const localHealth = await getLocalHealth();
+  const cascade = resolveCascade(cascadeKey, policy, modelOverride, process.env, localHealth);
 
   // Build the system prompt as Anthropic-style blocks. The static parts
   // (HARD_RULES + team brief) carry cache_control:ephemeral so Anthropic's
@@ -725,11 +744,15 @@ async function runWarmup({ nodes, policy, modelOverride, timeoutMs, runDir, onEv
   if (modelOverride) {
     target = { provider: modelOverride.provider ?? "ollama", model: modelOverride.model };
   } else {
+    // Warmup is an Ollama-specific concept (mlx_lm.server loads its own model at
+    // startup). Collect the OLLAMA model ids across each node's tier from the
+    // shared tier table and pre-load the smallest.
     const candidates = [];
     for (const n of nodes) {
-      const r = NODE_ROUTING[n.key];
-      if (r?.localPrimary) candidates.push(r.localPrimary);
-      if (r?.localFallback) candidates.push(r.localFallback);
+      const tier = NODE_ROUTING[n.key]?.tier;
+      const m = tier ? TIER_LOCAL_MODELS[tier] : null;
+      if (m?.ollama) candidates.push({ provider: "ollama", model: m.ollama });
+      if (m?.ollamaFallback) candidates.push({ provider: "ollama", model: m.ollamaFallback });
     }
     // Prefer the smallest local model. "llama3.2:3b" < "qwen3:8b-q4_K_M" < "gemma4:26b".
     const score = (m) => {

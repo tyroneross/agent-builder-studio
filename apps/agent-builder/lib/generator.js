@@ -4,6 +4,12 @@ import {
   buildPromptBuilderContract,
   buildPromptingProfile,
 } from "./prompt-builder-guidance.js";
+// Spec contract (slugify/validateSpec/toYaml) now lives in the shared package —
+// single source of truth across the monorepo. Re-exported below for back-compat
+// with this app's existing importers (tests, app/page.js, build-files.js).
+import { slugify, validateSpec, toYaml } from "@tyroneross/agent-spec";
+
+export { slugify, validateSpec, toYaml };
 
 const CORE_FILES = [
   "agent-package.json",
@@ -42,14 +48,6 @@ const CORE_FILES = [
   "sources.md",
 ];
 
-export function slugify(value) {
-  return String(value ?? "agent")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "agent";
-}
-
 export function findPattern(patternId) {
   return PATTERNS.find((pattern) => pattern.id === patternId) ?? PATTERNS[0];
 }
@@ -80,67 +78,9 @@ export function normalizeSpec(input = {}) {
   };
 }
 
-export function validateSpec(spec) {
-  const errors = [];
-  if (!spec.projectName?.trim()) errors.push("Project name is required.");
-  if (!Array.isArray(spec.nodes) || spec.nodes.length === 0) errors.push("At least one node is required.");
-
-  const nodeIds = new Set(spec.nodes.map((node) => node.id));
-  for (const node of spec.nodes) {
-    if (!node.id) errors.push("Every node needs an id.");
-    if (!node.title) errors.push(`Node ${node.id || "(missing id)"} needs a title.`);
-  }
-
-  for (const edge of spec.edges ?? []) {
-    if (!nodeIds.has(edge.from)) errors.push(`Edge source ${edge.from} does not exist.`);
-    if (!nodeIds.has(edge.to)) errors.push(`Edge target ${edge.to} does not exist.`);
-  }
-
-  return errors;
-}
-
-function quoteYaml(value) {
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (value === null || value === undefined) return "null";
-  const text = String(value);
-  if (!text) return '""';
-  if (/^[a-zA-Z0-9_./:-]+$/.test(text)) return text;
-  return JSON.stringify(text);
-}
-
-export function toYaml(value, indent = 0) {
-  const pad = " ".repeat(indent);
-  if (Array.isArray(value)) {
-    if (!value.length) return "[]";
-    return value
-      .map((item) => {
-        if (item && typeof item === "object") {
-          const rendered = toYaml(item, indent + 2);
-          return `${pad}- ${rendered.trimStart()}`;
-        }
-        return `${pad}- ${quoteYaml(item)}`;
-      })
-      .join("\n");
-  }
-
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value);
-    if (!entries.length) return "{}";
-    return entries
-      .map(([key, item]) => {
-        if (Array.isArray(item)) {
-          return item.length ? `${pad}${key}:\n${toYaml(item, indent + 2)}` : `${pad}${key}: []`;
-        }
-        if (item && typeof item === "object") {
-          return `${pad}${key}:\n${toYaml(item, indent + 2)}`;
-        }
-        return `${pad}${key}: ${quoteYaml(item)}`;
-      })
-      .join("\n");
-  }
-
-  return `${pad}${quoteYaml(value)}`;
-}
+// slugify, validateSpec, toYaml now imported from @tyroneross/agent-spec (top of
+// file) and re-exported. The inline copies were removed during the agent-platform
+// consolidation; the package is byte-equivalent (proven at extraction time).
 
 function selectSources(spec) {
   const ids = new Set([

@@ -1,0 +1,16 @@
+{
+  "name": "agent-builder-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monorepo: agent design -> run -> package lifecycle. Local-first by default.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test:packages": "npm run test --workspace @tyroneross/agent-spec --workspace @tyroneross/local-llm",
+    "test": "npm run test:packages"
+  },
+  "license": "Apache-2.0"
+}

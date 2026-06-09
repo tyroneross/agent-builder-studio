@@ -13,6 +13,7 @@ import {
   cascadePolicy,
   resolveCascade,
   NODE_ROUTING,
+  TIER_LOCAL_MODELS,
   FAILURE_REASONS,
 } from "../lib/cos-config.mjs";
 import { recordTelemetry } from "../lib/cos-telemetry.mjs";
@@ -54,40 +55,51 @@ test("cascadePolicy: invalid allowCloud falls back to on-failure", () => {
 
 // ---------- resolveCascade ordering ----------
 
-test("resolveCascade: never -> [primary, fallback], no cloud", () => {
-  const c = resolveCascade("intake", { allowCloud: "never", maxCloudTokens: 0 });
-  assert.equal(c.length, 2);
-  assert.equal(c[0].lane, "local-primary");
-  assert.equal(c[1].lane, "local-fallback");
-  assert.deepEqual(c.map((s) => s.provider), ["ollama", "ollama"]);
+// MLX-first amendment: the local lane is now [local-mlx, local-ollama,
+// local-ollama-fallback]. Tests pass localHealth={mlx:true,ollama:true} so both
+// local backends are present (default optimistic when health is unknown).
+const BOTH_LOCAL = { mlx: true, ollama: true };
+
+test("resolveCascade: never -> [local-mlx, local-ollama, local-ollama-fallback], no cloud", () => {
+  const c = resolveCascade("intake", { allowCloud: "never", maxCloudTokens: 0 }, null, {}, BOTH_LOCAL);
+  assert.equal(c.length, 3);
+  assert.deepEqual(c.map((s) => s.lane), ["local-mlx", "local-ollama", "local-ollama-fallback"]);
+  assert.deepEqual(c.map((s) => s.provider), ["mlx", "ollama", "ollama"]);
 });
 
-test("resolveCascade: on-failure with all keys -> [primary, fallback, cloud, cloud-secondary, cloud-tertiary]", () => {
+test("resolveCascade: on-failure with all keys -> [local x3, cloud x3]", () => {
   const env = { GROQ_API_KEY: "x", ANTHROPIC_API_KEY: "x", OPENAI_API_KEY: "x" };
-  const c = resolveCascade("triage", { allowCloud: "on-failure", maxCloudTokens: 200000 }, null, env);
-  assert.equal(c.length, 5);
+  const c = resolveCascade("triage", { allowCloud: "on-failure", maxCloudTokens: 200000 }, null, env, BOTH_LOCAL);
+  assert.equal(c.length, 6);
   assert.deepEqual(
     c.map((s) => s.lane),
-    ["local-primary", "local-fallback", "cloud", "cloud-secondary", "cloud-tertiary"],
+    ["local-mlx", "local-ollama", "local-ollama-fallback", "cloud", "cloud-secondary", "cloud-tertiary"],
   );
-  assert.equal(c[2].provider, "groq");
-  assert.equal(c[3].provider, "anthropic");
-  assert.equal(c[4].provider, "openai");
+  assert.equal(c[0].provider, "mlx");
+  assert.equal(c[3].provider, "groq");
+  assert.equal(c[4].provider, "anthropic");
+  assert.equal(c[5].provider, "openai");
 });
 
 test("resolveCascade: missing API keys drop their cloud lanes", () => {
   const env = { GROQ_API_KEY: "x" }; // anthropic + openai keys absent
-  const c = resolveCascade("triage", { allowCloud: "on-failure", maxCloudTokens: 200000 }, null, env);
-  assert.equal(c.length, 3);
-  assert.deepEqual(c.map((s) => s.lane), ["local-primary", "local-fallback", "cloud"]);
+  const c = resolveCascade("triage", { allowCloud: "on-failure", maxCloudTokens: 200000 }, null, env, BOTH_LOCAL);
+  assert.equal(c.length, 4);
+  assert.deepEqual(c.map((s) => s.lane), ["local-mlx", "local-ollama", "local-ollama-fallback", "cloud"]);
+});
+
+test("resolveCascade: MLX down drops the mlx lane (local mirror of key-gating)", () => {
+  const c = resolveCascade("intake", { allowCloud: "never" }, null, {}, { mlx: false, ollama: true });
+  assert.ok(!c.some((s) => s.provider === "mlx"), "mlx lane dropped when unhealthy");
+  assert.equal(c[0].lane, "local-ollama");
 });
 
 test("resolveCascade: always with all keys -> [cloud lanes, then locals]", () => {
   const env = { GROQ_API_KEY: "x", ANTHROPIC_API_KEY: "x", OPENAI_API_KEY: "x" };
-  const c = resolveCascade("triage", { allowCloud: "always", maxCloudTokens: 200000 }, null, env);
+  const c = resolveCascade("triage", { allowCloud: "always", maxCloudTokens: 200000 }, null, env, BOTH_LOCAL);
   assert.deepEqual(
     c.map((s) => s.lane),
-    ["cloud", "cloud-secondary", "cloud-tertiary", "local-primary", "local-fallback"],
+    ["cloud", "cloud-secondary", "cloud-tertiary", "local-mlx", "local-ollama", "local-ollama-fallback"],
   );
 });
 
@@ -113,7 +125,9 @@ test("resolveCascade: every documented node has a routing entry", () => {
   ];
   for (const k of expected) {
     assert.ok(NODE_ROUTING[k], `node ${k} missing from NODE_ROUTING`);
-    assert.ok(NODE_ROUTING[k].localPrimary.model, `node ${k} primary missing`);
+    // Local models now derive from the tier (TIER_LOCAL_MODELS); routing carries
+    // the tier + cloud lanes.
+    assert.ok(NODE_ROUTING[k].tier, `node ${k} tier missing`);
     assert.ok(NODE_ROUTING[k].cloud.model, `node ${k} cloud missing`);
   }
 });
@@ -121,11 +135,12 @@ test("resolveCascade: every documented node has a routing entry", () => {
 // ---------- per-node tier honored ----------
 
 test("Different nodes route to different model tiers (parse vs synthesis)", () => {
-  // intake = parse → qwen3:8b-q4_K_M
-  // triage = synthesis → gemma4:26b
+  // intake = parse, triage = synthesis → different local model ids per tier.
+  const intakeLocal = resolveCascade("intake", { allowCloud: "never" }, null, {}, { mlx: true, ollama: true });
+  const triageLocal = resolveCascade("triage", { allowCloud: "never" }, null, {}, { mlx: true, ollama: true });
   assert.notEqual(
-    NODE_ROUTING.intake.localPrimary.model,
-    NODE_ROUTING.triage.localPrimary.model,
+    intakeLocal[0].model,
+    triageLocal[0].model,
     "parse and synthesis tiers collapsed to one model — tier table not honored",
   );
 });
@@ -391,9 +406,13 @@ test("runChiefOfStaff: parse-retry fires on null parse, succeeds on retry", asyn
       onEvent: () => {},
       runDir: dir,
     });
-    // All nodes should have succeeded on the local primary after a parse-retry.
+    // All nodes should have succeeded on a LOCAL lane after a parse-retry. Which
+    // local backend wins (local-mlx vs local-ollama) depends on live server
+    // health probed at run time — both are mocked to succeed via setChatImpl, so
+    // the surviving primary local lane wins. Assert local + parsed, not a specific
+    // backend (health is environmental, not part of this test's contract).
     for (const [, node] of Object.entries(transcript.nodes)) {
-      assert.equal(node.lane, "local-primary", `${node.name} should win on primary after retry`);
+      assert.ok(node.lane.startsWith("local-"), `${node.name} should win on a local lane, got ${node.lane}`);
       assert.ok(node.parsed != null);
     }
     const tel = (await readFile(join(dir, "telemetry.jsonl"), "utf8"))
@@ -859,13 +878,19 @@ test("runChiefOfStaff: per-node tier produces different models in telemetry", as
       onEvent: () => {},
       runDir: dir,
     });
-    // intake (parse) should be on qwen3:8b-q4_K_M, triage (synthesis) on gemma4:26b.
-    assert.equal(transcript.nodes.intake.model, NODE_ROUTING.intake.localPrimary.model);
-    assert.equal(transcript.nodes.triage.model, NODE_ROUTING.triage.localPrimary.model);
+    // intake = parse tier, triage = synthesis tier. The winning local model is
+    // the tier's model for whichever local backend survived the health probe
+    // (mlx if up, else ollama). The core invariant: per-tier model ids differ.
+    const intakeTier = NODE_ROUTING.intake.tier;
+    const triageTier = NODE_ROUTING.triage.tier;
+    const intakeModels = [TIER_LOCAL_MODELS[intakeTier].mlx, TIER_LOCAL_MODELS[intakeTier].ollama, TIER_LOCAL_MODELS[intakeTier].ollamaFallback];
+    const triageModels = [TIER_LOCAL_MODELS[triageTier].mlx, TIER_LOCAL_MODELS[triageTier].ollama, TIER_LOCAL_MODELS[triageTier].ollamaFallback];
+    assert.ok(intakeModels.includes(transcript.nodes.intake.model), `intake model ${transcript.nodes.intake.model} not in parse tier`);
+    assert.ok(triageModels.includes(transcript.nodes.triage.model), `triage model ${transcript.nodes.triage.model} not in synthesis tier`);
     assert.notEqual(
       transcript.nodes.intake.model,
       transcript.nodes.triage.model,
-      "tier table collapsed — intake and triage should not share a model",
+      "tier table collapsed — intake (parse) and triage (synthesis) should not share a model",
     );
   } finally {
     setChatImpl(null);

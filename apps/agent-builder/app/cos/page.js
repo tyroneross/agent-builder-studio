@@ -284,10 +284,11 @@ export default function CosPage() {
           <div className="cos-about-status">
             <h3>What&rsquo;s wired</h3>
             <dl>
-              <div><dt>Ollama (local)</dt><dd>{envStatus ? "✓ live" : "checking…"}</dd></div>
+              <div><dt>MLX (local-primary)</dt><dd>OpenAI-compatible <code>mlx_lm.server</code> (default 127.0.0.1:8080) · head of the local cascade; skipped to Ollama when the server isn&rsquo;t running</dd></div>
+              <div><dt>Ollama (local-fallback)</dt><dd>{envStatus ? "✓ live" : "checking…"}</dd></div>
               <div><dt>Groq (cloud-1)</dt><dd>{envStatus?.groq ? "✓ key detected · llama-3.3-70b for synthesis, llama-3.1-8b for parse" : "no key — set GROQ_API_KEY in shell"}</dd></div>
-              <div><dt>Anthropic (cloud-2)</dt><dd>stubbed — provider shim returns &ldquo;disabled&rdquo;; flip on by replacing <code>lib/providers/anthropic.mjs</code></dd></div>
-              <div><dt>OpenAI (cloud-3)</dt><dd>stubbed — same pattern as Anthropic</dd></div>
+              <div><dt>Anthropic (cloud-2)</dt><dd>✓ implemented (/v1/messages with prefill + prompt-cache) · key-gated — set <code>ANTHROPIC_API_KEY</code> to enable the lane</dd></div>
+              <div><dt>OpenAI (cloud-3)</dt><dd>✓ implemented (/v1/chat/completions, json_schema mode) · key-gated — set <code>OPENAI_API_KEY</code> to enable the lane</dd></div>
               <div><dt>Telemetry / downloads</dt><dd>✓ JSONL per run · brief.md · transcript.json</dd></div>
               <div><dt>Learning ledger</dt><dd>✓ promoted lessons from prior runs inject into triage + time-block</dd></div>
               <div><dt>Cascade events on SSE</dt><dd>✓ cascade-attempt · node-end · run-summary · lesson-loaded</dd></div>
