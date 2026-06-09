@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: install + test (deterministic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      # One install links all workspaces (packages + apps).
+      - run: npm ci
+      # Deterministic suite: packages + agent-builder + chief-of-staff +
+      # studio roundtrip/no-hardcoded-storage. Studio's test:self and any
+      # cascade lane that hits a live Ollama/MLX server are NOT run in CI
+      # (no local model server in the runner) — they run on the dev machine.
+      - run: npm test
+
+  build:
+    name: per-app build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [agent-builder, agent-studio]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      # Next.js apps build independently; per-app deploy configs are preserved.
+      - run: npm run build --workspace ${{ matrix.app }}
+
+  build-cos:
+    name: chief-of-staff syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      # COS "build" is a syntax check (Node HTTP server, no bundler).
+      - run: npm run build --workspace chief-of-staff
+
+  plugin-boundary:
+    name: agent-builder plugin no-import boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The plugin/ companion must never import from the workbench lib/.
+      - name: assert plugin has zero lib imports
+        run: |
+          hits=$(grep -rEn "from ['\"]\.\.?/.*lib/|require\(['\"].*lib/" apps/agent-builder/plugin --include='*.mjs' --include='*.js' 2>/dev/null | grep -v node_modules | wc -l | tr -d ' ')
+          echo "plugin lib-import count: $hits"
+          test "$hits" = "0" || { echo "BOUNDARY VIOLATION: plugin/ imports from lib/"; exit 1; }

@@ -10,7 +10,12 @@
   ],
   "scripts": {
     "test:packages": "npm run test --workspace @tyroneross/agent-spec --workspace @tyroneross/local-llm",
-    "test": "npm run test:packages"
+    "test:agent-builder": "npm test --workspace agent-builder",
+    "test:chief-of-staff": "npm test --workspace chief-of-staff",
+    "test:studio": "cd apps/agent-studio && npm run test:roundtrip && npm run test:no-hardcoded-storage",
+    "test:studio:live": "npm run test:self --workspace agent-studio",
+    "test": "npm run test:packages && npm run test:agent-builder && npm run test:chief-of-staff && npm run test:studio",
+    "test:live": "npm run test && npm run test:studio:live"
   },
   "license": "Apache-2.0"
 }

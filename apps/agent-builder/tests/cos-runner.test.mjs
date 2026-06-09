@@ -512,14 +512,22 @@ test("runChiefOfStaff: warmup picks smallest local model, not synthesis", async 
 
   const dir = await mkdtemp(join(tmpdir(), "cos-warm-"));
   try {
+    // Capture the warmup TARGET from either path: the warmup chat call (model
+    // not resident) OR the warmup-skip event (model already loaded in Ollama —
+    // environment-dependent, since prior live runs may have loaded it). Both
+    // prove the SMALLEST model was chosen, which is the test's contract.
     await mod.runChiefOfStaff({
       schedule: '{"weekOf":"2026-W19","events":[]}',
       goals: "test",
       allowCloud: "never",
-      onEvent: () => {},
+      onEvent: (evt) => {
+        if ((evt.type === "warmup" || evt.type === "warmup-skip") && evt.model) {
+          warmupModel = evt.model;
+        }
+      },
       runDir: dir,
     });
-    assert.ok(warmupModel, "warmup should have run");
+    assert.ok(warmupModel, "warmup should have run or been skipped-as-loaded");
     // Smallest model in cascade is llama3.2:3b (parse fallback). Warmup must
     // NOT pick the 26B synthesis model.
     assert.notEqual(warmupModel, "gemma4:26b", `warmup picked synthesis model ${warmupModel}`);
