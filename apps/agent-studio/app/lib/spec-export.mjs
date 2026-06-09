@@ -19,7 +19,7 @@ import { getEffectiveRoleTemplate, HARD_RULES } from "./role-templates.mjs";
 // package — this is the "switch to import when it becomes a peer dep" the prior
 // hand-copy explicitly anticipated. Re-exported below under the studio's
 // historical names (slugifySpec) for back-compat with existing importers.
-import { slugify as slugifySpec, toYaml, validateSpec } from "@tyroneross/agent-spec";
+import { slugify as slugifySpec, toYaml, validateSpec, canonicalRole, lintRoles } from "@tyroneross/agent-spec";
 
 export { slugifySpec, toYaml, validateSpec };
 
@@ -130,7 +130,10 @@ function projectToSpec(project) {
     const out = {
       id: n.id,
       title: n.title,
-      kind: n.role,
+      // Unify on the shared canonical role vocabulary. canonicalRole is identity
+      // on already-canonical values (the studio's role set is a subset of ROLES),
+      // so this preserves byte-for-byte round-trip while normalizing aliases.
+      kind: canonicalRole(n.role),
       description: n.description ?? "",
       instructions: typeof n.instructions === "string" ? n.instructions : "",
       tools: [],
@@ -460,6 +463,15 @@ export function exportProjectToSpec(project, options = {}) {
     throw err;
   }
 
+  // Advisory (non-gating): flag any node whose role/kind didn't resolve to a
+  // known canonical role. After projectToSpec runs canonicalRole(), unknowns
+  // have already collapsed to "agent", so this catches genuinely-unmappable
+  // inputs only. Surfaced on the return object, never thrown — matching
+  // lintRoles' non-breaking contract.
+  const roleWarnings = lintRoles(spec).map(
+    (u) => `node ${u.id ?? "(missing id)"}: unknown role "${u.value}" — defaulted to "agent"`,
+  );
+
   const createdAt = options.createdAt ?? new Date().toISOString();
 
   // Studio-only fields the exporter drops, surfaced in README so the
@@ -498,6 +510,7 @@ export function exportProjectToSpec(project, options = {}) {
     defaults: SPEC_DEFAULTS,
     spec,
     strippedFields,
+    warnings: roleWarnings,
   };
 }
 
@@ -598,7 +611,7 @@ export function importSpecToProject(files, options = {}) {
     const xy = placement(n.id);
     const out = {
       id: n.id,
-      role: n.kind ?? "agent",
+      role: canonicalRole(n.kind ?? "agent"),
       title: n.title ?? n.id,
       description: n.description ?? "",
       instructions: typeof n.instructions === "string" ? n.instructions : "",

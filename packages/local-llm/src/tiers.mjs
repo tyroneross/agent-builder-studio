@@ -103,6 +103,15 @@ export const NODE_ROUTING = Object.freeze({
     cloudSecondary: { provider: "anthropic", model: ANTHROPIC_SYNTHESIS },
     cloudTertiary: { provider: "openai", model: OPENAI_SYNTHESIS },
   },
+  // Chief-of-Staff daily-plan ritual: one mid-tier instruction-following call
+  // over a schedule. Same cloud lanes as the COS mid nodes so the local-first
+  // cascade (MLX -> Ollama -> key-gated cloud) applies uniformly.
+  daily_plan: {
+    tier: TIERS.mid,
+    cloud: { provider: "groq", model: "llama-3.1-8b-instant" },
+    cloudSecondary: { provider: "anthropic", model: ANTHROPIC_PARSE },
+    cloudTertiary: { provider: "openai", model: OPENAI_PARSE },
+  },
 });
 
 const VALID_ALLOW_CLOUD = new Set(["never", "on-failure", "always"]);

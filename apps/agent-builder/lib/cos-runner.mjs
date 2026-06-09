@@ -10,9 +10,9 @@ import {
   cascadePolicy,
   resolveCascade,
   nodeKeyForTier,
-  FAILURE_REASONS,
   probeMlx,
   probeOllama,
+  runCascade,
 } from "@tyroneross/local-llm";
 import { NODE_ROLE, roleBriefFor, roleNameFor, effectiveTierOverride } from "./cos-roles.mjs";
 import { recordTelemetry, flushTelemetry } from "./cos-telemetry.mjs";
@@ -35,16 +35,20 @@ export const DEFAULT_GOAL =
 
 // Re-export for back-compat with any code that imported from here previously.
 export { ollamaTags };
-export { NODE_ROUTING, cascadePolicy, resolveCascade } from "@tyroneross/local-llm";
 
 // Probe local lanes ONCE per process and cache. Used to drop an unhealthy local
 // lane from the cascade (MLX-first: if mlx_lm.server is down, mlx is skipped and
 // Ollama becomes the local primary — the local mirror of cloud key-gating).
 let _localHealth = null;
+let _localHealthAt = 0;
+const LOCAL_HEALTH_TTL_MS = 60000;
 async function getLocalHealth() {
-  if (_localHealth) return _localHealth;
+  // Cache for 60s (not forever): MLX/Ollama started AFTER the first run must be
+  // able to rejoin the cascade without a process restart.
+  if (_localHealth && Date.now() - _localHealthAt < LOCAL_HEALTH_TTL_MS) return _localHealth;
   const [mlx, ollama] = await Promise.all([probeMlx(), probeOllama()]);
   _localHealth = { mlx: mlx.healthy, ollama: ollama.healthy };
+  _localHealthAt = Date.now();
   return _localHealth;
 }
 
@@ -318,194 +322,6 @@ export function buildBrief({ model, transcript }) {
 }
 
 /**
- * Try one provider step for a node. Internally fires up to one parse-retry
- * if the first call returns ok=true but parsed=null. Returns the final
- * envelope plus a `parse_retry` flag and `ms`.
- */
-async function tryStep({ step, system, userMsg, jsonSchema, jsonSchemaName, role, timeoutMs, onChunk, runDir, nodeKey, attempt }) {
-  const t0 = Date.now();
-  const first = await chat({
-    provider: step.provider,
-    model: step.model,
-    system,
-    messages: [{ role: "user", content: userMsg }],
-    jsonSchema,
-    jsonSchemaName,
-    timeoutMs,
-    onChunk,
-  });
-  const firstMs = Date.now() - t0;
-
-  if (!first.ok) {
-    recordTelemetry(runDir, {
-      node: nodeKey,
-      role: role ?? null,
-      attempt,
-      lane: step.lane,
-      provider: step.provider,
-      model: step.model,
-      tokens_in: null,
-      tokens_out: null,
-      cache_read_tokens: null,
-      cache_write_tokens: null,
-      ms: firstMs,
-      parsed_ok: false,
-      fallback_reason: first.reason ?? FAILURE_REASONS.UNKNOWN,
-      parse_retry: false,
-      error: first.error,
-    });
-    return { envelope: first, parseRetried: false };
-  }
-
-  if (first.parsed != null) {
-    recordTelemetry(runDir, {
-      node: nodeKey,
-      role: role ?? null,
-      attempt,
-      lane: step.lane,
-      provider: step.provider,
-      model: step.model,
-      tokens_in: first.tokens_in ?? null,
-      tokens_out: first.tokens_out ?? null,
-      cache_read_tokens: first.cache_read_tokens ?? null,
-      cache_write_tokens: first.cache_write_tokens ?? null,
-      ms: firstMs,
-      parsed_ok: true,
-      fallback_reason: null,
-      parse_retry: false,
-    });
-    return { envelope: first, parseRetried: false };
-  }
-
-  // Parse-retry: prompt the same provider with the malformed output and a
-  // hard "JSON only" suffix. Single retry, no further loop.
-  recordTelemetry(runDir, {
-    node: nodeKey,
-    role: role ?? null,
-    attempt,
-    lane: step.lane,
-    provider: step.provider,
-    model: step.model,
-    tokens_in: first.tokens_in ?? null,
-    tokens_out: first.tokens_out ?? null,
-    cache_read_tokens: first.cache_read_tokens ?? null,
-    cache_write_tokens: first.cache_write_tokens ?? null,
-    ms: firstMs,
-    parsed_ok: false,
-    fallback_reason: FAILURE_REASONS.PARSE,
-    parse_retry: false,
-  });
-
-  const retryMsg = [
-    "Your last response was not valid JSON. Return ONLY the JSON object below and nothing else.",
-    "",
-    "Previous (malformed) output:",
-    first.text.slice(0, 4000),
-    "",
-    "Now return strict JSON for this request:",
-    "",
-    userMsg,
-  ].join("\n");
-
-  const t1 = Date.now();
-  const second = await chat({
-    provider: step.provider,
-    model: step.model,
-    system,
-    messages: [{ role: "user", content: retryMsg }],
-    jsonSchema,
-    jsonSchemaName,
-    timeoutMs,
-    onChunk,
-  });
-  const secondMs = Date.now() - t1;
-
-  if (!second.ok) {
-    recordTelemetry(runDir, {
-      node: nodeKey,
-      role: role ?? null,
-      attempt,
-      lane: step.lane,
-      provider: step.provider,
-      model: step.model,
-      tokens_in: null,
-      tokens_out: null,
-      cache_read_tokens: null,
-      cache_write_tokens: null,
-      ms: secondMs,
-      parsed_ok: false,
-      fallback_reason: second.reason ?? FAILURE_REASONS.UNKNOWN,
-      parse_retry: true,
-      error: second.error,
-    });
-    return { envelope: second, parseRetried: true };
-  }
-
-  recordTelemetry(runDir, {
-    node: nodeKey,
-    role: role ?? null,
-    attempt,
-    lane: step.lane,
-    provider: step.provider,
-    model: step.model,
-    tokens_in: second.tokens_in ?? null,
-    tokens_out: second.tokens_out ?? null,
-    cache_read_tokens: second.cache_read_tokens ?? null,
-    cache_write_tokens: second.cache_write_tokens ?? null,
-    ms: secondMs,
-    parsed_ok: second.parsed != null,
-    fallback_reason: second.parsed == null ? FAILURE_REASONS.PARSE : null,
-    parse_retry: true,
-  });
-  return { envelope: second, parseRetried: true };
-}
-
-/**
- * Run the cascade for a single node. Returns the winning envelope (or the
- * last failure envelope if every step failed) plus the `lane` taken.
- */
-async function runNodeCascade({ node, cascade, system, userMsg, jsonSchema, jsonSchemaName, role, timeoutMs, onEvent, runDir }) {
-  let attempt = 0;
-  let lastErr = null;
-  for (const step of cascade) {
-    attempt += 1;
-    // `cascade-attempt` is the named event UI consumers use to show
-    // "trying local-primary..." → "trying local-fallback..." → "trying cloud..."
-    // before each step's provider call starts. We keep emitting `node-step`
-    // for back-compat with the CLI runner that ships in this repo today.
-    const cascadePayload = {
-      node: node.key,
-      role: node.role ?? null,
-      attempt,
-      lane: step.lane,
-      provider: step.provider,
-      model: step.model,
-    };
-    onEvent({ type: "cascade-attempt", ...cascadePayload });
-    onEvent({ type: "node-step", key: node.key, ...cascadePayload });
-    const { envelope } = await tryStep({
-      step,
-      system,
-      userMsg,
-      jsonSchema,
-      jsonSchemaName,
-      role,
-      timeoutMs,
-      onChunk: (_chunk, totalBytes) =>
-        onEvent({ type: "node-chunk", key: node.key, bytes: totalBytes }),
-      runDir,
-      nodeKey: node.key,
-      attempt,
-    });
-    if (envelope.ok && envelope.parsed != null) {
-      return { envelope, step };
-    }
-    lastErr = envelope;
-  }
-  return { envelope: lastErr ?? { ok: false, error: "no cascade steps" }, step: null };
-}
-
-/**
  * Find promoted lessons from the most recent prior run's `learning-ledger.json`.
  *
  * Convention:
@@ -669,7 +485,7 @@ async function runOneNode({
   ].join("\n");
 
   const t0 = Date.now();
-  const { envelope, step } = await runNodeCascade({
+  const { envelope, step } = await runCascade({
     node,
     cascade,
     system,
@@ -679,7 +495,10 @@ async function runOneNode({
     role: node.role ?? null,
     timeoutMs,
     onEvent,
-    runDir,
+    // Telemetry seam: the package emits domain-free records; bind them to this
+    // run's JSONL destination. The package's chat() is the SAME module instance
+    // the test's setChatImpl() mutates, so no chat injection is needed.
+    recordTelemetry: (rec) => recordTelemetry(runDir, rec),
   });
   const ms = Date.now() - t0;
 

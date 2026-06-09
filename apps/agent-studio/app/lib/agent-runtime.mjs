@@ -41,7 +41,7 @@ import { DEFAULT_RUNTIME_CONFIG } from "./runtime-config.mjs";
 // monorepo, replacing studio's inline NDJSON reader). streamChat below is a thin
 // adapter preserving studio's return shape + onChunkBytes contract + seed
 // determinism (OLLAMA_SEED), now passed through to the package provider.
-import { chat as ollamaChat } from "@tyroneross/local-llm";
+import { chat as ollamaChat, ollamaTags } from "@tyroneross/local-llm";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
 const DEFAULT_MODEL =
@@ -261,12 +261,12 @@ function buildMessages(node, project, query, incoming, results, loadedUploads) {
 
 // ── Ollama streaming caller ────────────────────────────────────────────────
 
-async function checkOllama(baseUrl, signal) {
-  const res = await fetch(`${baseUrl}/api/tags`, {
-    signal,
-  });
-  if (!res.ok) throw new Error(`ollama tags returned ${res.status}`);
-  const body = await res.json();
+async function checkOllama(baseUrl, _signal) {
+  // Use the shared package's tag probe (single Ollama client across the
+  // monorepo). It returns the raw { models: [{ name, ... }] } body and never
+  // throws on an HTTP/network error (returns { models: [] }); the warmup caller
+  // already treats an empty model list as a hard "ollama has no models" error.
+  const body = await ollamaTags({ baseUrl, timeoutMs: 4000 });
   const models = (body.models ?? []).map((m) => m.name);
   return { models };
 }

@@ -1313,7 +1313,11 @@ export default function StudioCanvas() {
         return;
       }
       if (typeof window !== "undefined") {
-        window.alert(`Wrote ${json.fileCount} file(s) (${json.totalBytes} bytes) to ${json.savedDir}`);
+        const warnLine =
+          Array.isArray(bundle.warnings) && bundle.warnings.length
+            ? `\n\nRole warnings:\n${bundle.warnings.join("\n")}`
+            : "";
+        window.alert(`Wrote ${json.fileCount} file(s) (${json.totalBytes} bytes) to ${json.savedDir}${warnLine}`);
       }
     } catch (err) {
       if (typeof window !== "undefined") {

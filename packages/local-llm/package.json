@@ -5,8 +5,7 @@
   "type": "module",
   "main": "index.mjs",
   "exports": {
-    ".": "./index.mjs",
-    "./src/providers/*": "./src/providers/*"
+    ".": "./index.mjs"
   },
   "files": [
     "index.mjs",

@@ -19,8 +19,13 @@ import {
 import { recordTelemetry } from "../lib/cos-telemetry.mjs";
 import * as providers from "../lib/providers/index.mjs";
 import { setChatImpl } from "../lib/providers/index.mjs";
-import { chat as anthropicChat } from "../lib/providers/anthropic.mjs";
-import { chat as openaiChat } from "../lib/providers/openai.mjs";
+// Per-provider behavior is reached through the package's root `chat` dispatcher
+// (provider-keyed); the four 1-line app-local shims were removed. The dispatcher
+// routes to the same provider module, so the missing-key / cache_control /
+// strict-json envelopes are identical to calling the provider chat() directly.
+import { chat as pkgChat } from "@tyroneross/local-llm";
+const anthropicChat = (opts) => pkgChat({ ...opts, provider: "anthropic" });
+const openaiChat = (opts) => pkgChat({ ...opts, provider: "openai" });
 
 // ---------- cascadePolicy precedence ----------
 
@@ -190,8 +195,7 @@ test("openai.chat: missing OPENAI_API_KEY returns missing-key envelope", async (
 test("groq.chat: missing GROQ_API_KEY returns missing-key envelope", async () => {
   const env = { ...process.env };
   delete process.env.GROQ_API_KEY;
-  const { chat: groqChat } = await import("../lib/providers/groq.mjs");
-  const out = await groqChat({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: "x" }] });
+  const out = await pkgChat({ provider: "groq", model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: "x" }] });
   process.env = env;
   assert.equal(out.ok, false);
   assert.equal(out.reason, FAILURE_REASONS.MISSING_KEY);
@@ -564,8 +568,7 @@ test("anthropic.chat: parses prefilled-{ JSON and reports cache tokens when pres
   const orig = process.env.ANTHROPIC_API_KEY;
   process.env.ANTHROPIC_API_KEY = "test-stub";
   try {
-    const { chat: ach } = await import("../lib/providers/anthropic.mjs");
-    const env = await ach({
+    const env = await anthropicChat({
       model: "claude-haiku-4-5-20251001",
       system: [
         { type: "text", text: "STATIC RULES", cache_control: { type: "ephemeral" } },
@@ -611,8 +614,7 @@ test("openai.chat: uses strict json_schema mode when jsonSchema is provided", as
   const orig = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = "test-stub";
   try {
-    const { chat: och } = await import("../lib/providers/openai.mjs");
-    const env = await och({
+    const env = await openaiChat({
       model: "gpt-5-mini",
       system: "sys",
       messages: [{ role: "user", content: "u" }],
