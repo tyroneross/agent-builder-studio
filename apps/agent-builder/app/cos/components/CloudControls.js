@@ -1,12 +1,16 @@
 "use client";
 
-// CloudControls — radio + numeric input for the cascade policy.
+// CloudControls — radio group for the cascade policy.
 //
 // Behavior:
-//   - allowCloud=never   → maxCloudTokens disabled and visually muted
 //   - allowCloud=always  → if no cloud key is detected, show a warning row
 //   - GROQ key indicator: ✓ when present, "missing" when not (text only,
 //     no background pills per the project's design discipline)
+//
+// The cloud-token run budget is NOT a user-facing setting (follow-up item 10
+// ruling): runChiefOfStaff derives it from cascadePolicy() and the cascade
+// skips cloud lanes gracefully once it is spent. The UI states this instead
+// of offering a dead knob.
 
 const CLOUD_DESCRIPTIONS = {
   never: "Local only. Cascade falls back to local-fallback then fails.",
@@ -17,8 +21,6 @@ const CLOUD_DESCRIPTIONS = {
 export default function CloudControls({
   allowCloud,
   setAllowCloud,
-  maxCloudTokens,
-  setMaxCloudTokens,
   envStatus,
   disabled,
 }) {
@@ -26,8 +28,6 @@ export default function CloudControls({
   const anthropicOk = envStatus?.anthropic === true;
   const openaiOk = envStatus?.openai === true;
   const anyCloudKey = groqOk || anthropicOk || openaiOk;
-
-  const tokenInputDisabled = disabled || allowCloud === "never";
 
   const showAmberWarning = allowCloud === "always" && !anyCloudKey;
 
@@ -57,17 +57,12 @@ export default function CloudControls({
         ))}
       </fieldset>
 
-      <label className="cos-cloud-tokens">
-        <span>Max cloud tokens (run budget)</span>
-        <input
-          type="number"
-          min="0"
-          step="10000"
-          value={maxCloudTokens}
-          onChange={(e) => setMaxCloudTokens(Number(e.target.value))}
-          disabled={tokenInputDisabled}
-        />
-      </label>
+      {allowCloud !== "never" && (
+        <p className="cos-cloud-budget">
+          Cloud spend is budget-capped automatically per run; once spent, the
+          cascade stays on local lanes.
+        </p>
+      )}
 
       {showAmberWarning && (
         <p className="cos-cloud-warn">
@@ -132,24 +127,11 @@ export default function CloudControls({
           color: var(--muted);
           font-size: 12px;
         }
-        .cos-cloud-tokens {
-          display: grid;
-          gap: 4px;
-          margin-bottom: 8px;
-        }
-        .cos-cloud-tokens span {
+        .cos-cloud-budget {
           color: var(--muted);
           font-size: 12px;
-          font-weight: 600;
-          letter-spacing: 0.02em;
-          text-transform: uppercase;
-        }
-        .cos-cloud-tokens input {
-          max-width: 200px;
-        }
-        .cos-cloud-tokens input:disabled {
-          color: var(--faint);
-          background: var(--surface-muted);
+          line-height: 1.45;
+          margin: 0 0 8px;
         }
         .cos-cloud-warn {
           color: var(--tool);

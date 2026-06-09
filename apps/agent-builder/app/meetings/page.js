@@ -253,7 +253,13 @@ export default function MeetingsPage() {
                 <small>{profile.note}</small>
               </div>
             </div>
-            <button className="primary-button meeting-run" type="button" onClick={ingestFiles} disabled={status.status === "running"}>
+            <button
+              className="primary-button meeting-run"
+              type="button"
+              onClick={ingestFiles}
+              disabled={status.status === "running" || files.length === 0}
+              title={files.length === 0 ? "Choose one or more files first" : undefined}
+            >
               <Brain size={17} />
               {status.status === "running" ? "Ingesting Files" : "Ingest Files"}
             </button>

@@ -159,7 +159,14 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
           setModels(body.models);
           setModelsError(null);
           if (body.models.length > 0) {
-            setSelectedModel((prev) => (prev && body.models.includes(prev) ? prev : body.models[0]));
+            // Default: keep the user's pick if still installed; otherwise
+            // prefer a known-solid instruct family over whatever happens to
+            // sort first (tinyllama makes a poor first-run demo).
+            const preferred =
+              [/^llama3/i, /^qwen3/i, /^gemma/i]
+                .map((re) => body.models.find((m) => re.test(m)))
+                .find(Boolean) ?? body.models[0];
+            setSelectedModel((prev) => (prev && body.models.includes(prev) ? prev : preferred));
           }
         } else {
           setModels([]);

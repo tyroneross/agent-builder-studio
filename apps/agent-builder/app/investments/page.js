@@ -295,6 +295,14 @@ function Verdict({ value }) {
   return <span className={`investment-verdict investment-verdict-${value}`}>{value}</span>;
 }
 
+function sourceHost(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
 function SourceList({ sources }) {
   return (
     <ul className="investment-source-list">
@@ -304,8 +312,8 @@ function SourceList({ sources }) {
           <strong>{source.label}</strong>
           <small>{source.locator}</small>
           {source.url && (
-            <a href={source.url} target="_blank" rel="noreferrer">
-              {source.url}
+            <a className="investment-source-link" href={source.url} target="_blank" rel="noreferrer" title={source.url}>
+              {sourceHost(source.url)}
             </a>
           )}
         </li>

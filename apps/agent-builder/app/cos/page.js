@@ -34,7 +34,6 @@ export default function CosPage() {
 
   // ---------- cascade controls ----------
   const [allowCloud, setAllowCloud] = useState("on-failure");
-  const [maxCloudTokens, setMaxCloudTokens] = useState(200000);
   const [envStatus, setEnvStatus] = useState(null);
 
   // ---------- run state ----------
@@ -107,7 +106,6 @@ export default function CosPage() {
           schedule,
           goals,
           allowCloud,
-          maxCloudTokens,
         }),
         signal: ac.signal,
       });
@@ -292,6 +290,7 @@ export default function CosPage() {
               <div><dt>Telemetry / downloads</dt><dd>✓ JSONL per run · brief.md · transcript.json</dd></div>
               <div><dt>Learning ledger</dt><dd>✓ promoted lessons from prior runs inject into triage + time-block</dd></div>
               <div><dt>Cascade events on SSE</dt><dd>✓ cascade-attempt · node-end · run-summary · lesson-loaded</dd></div>
+              <div><dt>Local JSON DOE</dt><dd>✓ measured 2026-06-09 (evals/doe/): strict ONLY-JSON suffix +10pts pass rate on 3B locals; inlined schema −22pts. Re-run: npm run doe:local-json</dd></div>
             </dl>
           </div>
         </section>
@@ -300,8 +299,6 @@ export default function CosPage() {
       <CloudControls
         allowCloud={allowCloud}
         setAllowCloud={setAllowCloud}
-        maxCloudTokens={maxCloudTokens}
-        setMaxCloudTokens={setMaxCloudTokens}
         envStatus={envStatus}
         disabled={running}
       />
@@ -463,8 +460,9 @@ export default function CosPage() {
         .cos-disclosure {
           background: none;
           border: none;
-          padding: 0;
-          margin-bottom: 20px;
+          padding: 4px 0;
+          min-height: 24px;
+          margin-bottom: 16px;
           color: var(--accent-strong);
           font-size: 13px;
           font-weight: 500;
@@ -546,9 +544,10 @@ export default function CosPage() {
           margin-top: 4px;
         }
         .cos-disclosure-inline {
+          min-height: 24px;
+          padding: 4px 0;
           background: none;
           border: none;
-          padding: 0;
           color: var(--accent-strong);
           font-size: 12px;
           font-weight: 500;

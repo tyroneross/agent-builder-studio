@@ -7,10 +7,11 @@
     "dev": "next dev --webpack -p 3030",
     "build": "next build",
     "start": "next start -p 3030",
-    "test:self": "node scripts/test-self.mjs && node scripts/test-roundtrip.mjs && node scripts/test-no-hardcoded-storage.mjs && node scripts/test-doc-ingest.mjs",
+    "test:self": "node scripts/test-self.mjs && node scripts/test-roundtrip.mjs && node scripts/test-no-hardcoded-storage.mjs && node scripts/test-doc-ingest.mjs && node scripts/test-models-filter.mjs",
     "test:roundtrip": "node scripts/test-roundtrip.mjs",
     "test:no-hardcoded-storage": "node scripts/test-no-hardcoded-storage.mjs",
-    "test:doc-ingest": "node scripts/test-doc-ingest.mjs"
+    "test:doc-ingest": "node scripts/test-doc-ingest.mjs",
+    "test:models-filter": "node scripts/test-models-filter.mjs"
   },
   "dependencies": {
     "@tyroneross/agent-spec": "*",

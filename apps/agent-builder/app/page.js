@@ -473,7 +473,7 @@ export default function Home() {
 
           <div className="quiet-group">
             <p className="group-label">Framework fit</p>
-            <select value={spec.framework} onChange={(event) => updateSpec({ framework: event.target.value })}>
+            <select aria-label="Framework fit" value={spec.framework} onChange={(event) => updateSpec({ framework: event.target.value })}>
               {FRAMEWORKS.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.label}
@@ -485,7 +485,7 @@ export default function Home() {
 
           <div className="quiet-group">
             <p className="group-label">Runtime</p>
-            <select value={spec.runtime} onChange={(event) => updateSpec({ runtime: event.target.value })}>
+            <select aria-label="Runtime" value={spec.runtime} onChange={(event) => updateSpec({ runtime: event.target.value })}>
               <option value="local-nextjs">Local Next.js builder</option>
               <option value="local-sandbox">Local sandbox agent</option>
               <option value="local-python">Local Python runtime</option>

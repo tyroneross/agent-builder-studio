@@ -1,5 +1,8 @@
 // GET /api/agent/models
-// Lists locally-pulled Ollama models. Used by the test panel's model picker.
+// Lists locally-pulled Ollama CHAT models. Used by the test panel's model
+// picker. Embedding models (family "bert"/"nomic-bert", or *embed* names)
+// are filtered out — they 400 on /api/chat, and an alphabetical default of
+// bge-m3 broke the first-run demo (UI audit 2026-06-09).
 //
 // Response (always JSON):
 //   - { ok: true, models: string[], baseUrl }
@@ -27,6 +30,7 @@ export async function GET() {
     }
     const body = await res.json();
     const models = (body?.models ?? [])
+      .filter(isChatModel)
       .map((m) => m?.name)
       .filter((name) => typeof name === "string");
     return Response.json({ ok: true, models, baseUrl });
@@ -40,4 +44,19 @@ export async function GET() {
       { status: 200 },
     );
   }
+}
+
+// Embedding-model filter. Grounded against live /api/tags metadata: every
+// installed embedding model reports a family containing "bert"
+// (bge-m3 -> bert, mxbai-embed-large -> bert, nomic-embed-text -> nomic-bert);
+// the name pattern is a defensive second net for models without details.
+export function isChatModel(m) {
+  const name = typeof m?.name === "string" ? m.name : "";
+  if (/embed|bge-/i.test(name)) return false;
+  const families = [
+    m?.details?.family,
+    ...(Array.isArray(m?.details?.families) ? m.details.families : []),
+  ].filter((f) => typeof f === "string");
+  if (families.some((f) => f.includes("bert"))) return false;
+  return true;
 }

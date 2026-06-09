@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev --webpack",
+    "dev": "next dev --webpack -p 3028",
     "serve": "next build && next start --port 3028",
     "build": "next build",
     "agent:scan": "node scripts/agent-scan.mjs",
@@ -21,7 +21,7 @@
     "plan:run": "node scripts/run-plan.mjs",
     "sandbox:e2e": "node scripts/run-sandbox-e2e.mjs",
     "sandbox:score": "node scripts/run-sandbox-e2e.mjs --score --llm=fixture",
-    "start": "next start",
+    "start": "next start -p 3028",
     "test": "node --test tests/*.test.mjs",
     "doe:local-json": "node scripts/doe/run-local-json-doe.mjs"
   },
