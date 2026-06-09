@@ -19,6 +19,8 @@ export async function chat({
   stallMs = 30000,
   onChunk,
   baseUrl = DEFAULT_BASE,
+  seed, // optional: pass options.seed + temperature:0 for deterministic re-runs
+  options: optionsOverride, // optional: full options passthrough (num_ctx, temperature, ...)
 } = {}) {
   if (!model) {
     return errorEnvelope({
@@ -50,6 +52,17 @@ export async function chat({
     }, stallMs);
   };
 
+  // Resolve Ollama options. Default temperature 0.1 + num_ctx 8192; a numeric
+  // `seed` forces deterministic mode (temperature 0 + options.seed); an explicit
+  // `options` object overrides field-by-field (highest precedence).
+  const deterministic = Number.isFinite(seed);
+  const options = {
+    temperature: deterministic ? 0 : 0.1,
+    num_ctx: 8192,
+    ...(deterministic ? { seed } : {}),
+    ...(optionsOverride && typeof optionsOverride === "object" ? optionsOverride : {}),
+  };
+
   let res;
   try {
     res = await fetch(`${baseUrl}/api/chat`, {
@@ -59,7 +72,7 @@ export async function chat({
         model,
         stream: true,
         format: "json",
-        options: { temperature: 0.1, num_ctx: 8192 },
+        options,
         messages: [
           ...(systemText ? [{ role: "system", content: systemText }] : []),
           ...messages,

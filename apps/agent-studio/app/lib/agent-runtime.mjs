@@ -37,6 +37,11 @@
 
 import { getEffectiveRoleTemplate, HARD_RULES } from "./role-templates.mjs";
 import { DEFAULT_RUNTIME_CONFIG } from "./runtime-config.mjs";
+// Canonical Ollama client now lives in the shared package (one client across the
+// monorepo, replacing studio's inline NDJSON reader). streamChat below is a thin
+// adapter preserving studio's return shape + onChunkBytes contract + seed
+// determinism (OLLAMA_SEED), now passed through to the package provider.
+import { chat as ollamaChat } from "@tyroneross/local-llm";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
 const DEFAULT_MODEL =
@@ -282,84 +287,44 @@ function safeJsonParse(text) {
 // minimum knob set Ollama's docs say is needed for reproducible outputs
 // (same machine, same model build). The round-trip harness depends on this.
 async function streamChat(baseUrl, model, messages, signal, onChunkBytes) {
+  // Delegate to the shared @tyroneross/local-llm Ollama client. studio's
+  // contract is preserved exactly:
+  //   - OLLAMA_SEED env -> deterministic re-runs (temperature 0 + options.seed)
+  //   - onChunkBytes(totalBytes) called as content accumulates (the package's
+  //     onChunk passes (content, totalChars); we recompute byte length to keep
+  //     the historical byte-accounting semantics)
+  //   - returns { text, parsed, bytes }
+  // messages already include the system turn (studio builds it upstream), so we
+  // pass system="" and forward messages verbatim.
   const seedEnv =
     typeof process !== "undefined" && process.env ? process.env.OLLAMA_SEED : undefined;
-  const seed = seedEnv != null && seedEnv !== "" ? Number(seedEnv) : null;
-  const deterministic = Number.isFinite(seed);
+  const seed = seedEnv != null && seedEnv !== "" ? Number(seedEnv) : undefined;
 
-  const options = {
-    temperature: deterministic ? 0 : 0.2,
-    num_ctx: 8192,
-  };
-  if (deterministic) options.seed = seed;
-
-  const res = await fetch(`${baseUrl}/api/chat`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages,
-      stream: true,
-      format: "json",
-      options,
-    }),
-    signal,
-  });
-
-  if (!res.ok || !res.body) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`ollama /api/chat returned ${res.status}${detail ? `: ${detail}` : ""}`);
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
   let collected = "";
   let bytes = 0;
+  const env = await ollamaChat({
+    provider: "ollama",
+    model,
+    system: "",
+    messages,
+    baseUrl,
+    ...(Number.isFinite(seed) ? { seed } : { options: { temperature: 0.2 } }),
+    onChunk: (piece) => {
+      if (!piece) return;
+      collected += piece;
+      bytes += Buffer.byteLength(piece, "utf8");
+      if (onChunkBytes) onChunkBytes(bytes);
+    },
+  });
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let idx;
-    while ((idx = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (!line) continue;
-      let evt;
-      try {
-        evt = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      const piece = evt?.message?.content ?? "";
-      if (piece) {
-        collected += piece;
-        bytes += Buffer.byteLength(piece, "utf8");
-        if (onChunkBytes) onChunkBytes(bytes);
-      }
-      if (evt?.done) {
-        // drain any remaining buffer; loop will exit naturally
-      }
-    }
-  }
-  // flush any trailing line
-  const tail = buffer.trim();
-  if (tail) {
-    try {
-      const evt = JSON.parse(tail);
-      const piece = evt?.message?.content ?? "";
-      if (piece) {
-        collected += piece;
-        bytes += Buffer.byteLength(piece, "utf8");
-        if (onChunkBytes) onChunkBytes(bytes);
-      }
-    } catch {
-      /* ignore */
-    }
+  if (!env.ok) {
+    throw new Error(`ollama /api/chat: ${env.error}`);
   }
 
-  return { text: collected, parsed: safeJsonParse(collected), bytes };
+  // Prefer the streamed accumulation; fall back to the envelope text if a
+  // provider build didn't emit per-chunk content.
+  const text = collected || env.text || "";
+  return { text, parsed: safeJsonParse(text), bytes: bytes || Buffer.byteLength(text, "utf8") };
 }
 
 // ── Subagent dispatcher ───────────────────────────────────────────────────

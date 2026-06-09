@@ -15,6 +15,13 @@
 // keeps the files in memory.
 
 import { getEffectiveRoleTemplate, HARD_RULES } from "./role-templates.mjs";
+// The spec contract (slugify/toYaml/validateSpec) now lives in the shared
+// package — this is the "switch to import when it becomes a peer dep" the prior
+// hand-copy explicitly anticipated. Re-exported below under the studio's
+// historical names (slugifySpec) for back-compat with existing importers.
+import { slugify as slugifySpec, toYaml, validateSpec } from "@tyroneross/agent-spec";
+
+export { slugifySpec, toYaml, validateSpec };
 
 // ── Defaults ───────────────────────────────────────────────────────────────
 //
@@ -62,79 +69,11 @@ const SPEC_PATTERN_ENVELOPE = Object.freeze({
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-export function slugifySpec(value) {
-  return String(value ?? "agent")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "agent";
-}
-
-function quoteYaml(value) {
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (value === null || value === undefined) return "null";
-  const text = String(value);
-  if (!text) return '""';
-  if (/^[a-zA-Z0-9_./:-]+$/.test(text)) return text;
-  return JSON.stringify(text);
-}
-
-// Minimal YAML emitter — same algorithm as agent-builder/lib/generator.js#toYaml
-// so output bytes line up. Object-mode emits `key: value` lines; array-mode
-// emits `- value` lines; nested objects/arrays recurse.
-export function toYaml(value, indent = 0) {
-  const pad = " ".repeat(indent);
-  if (Array.isArray(value)) {
-    if (!value.length) return "[]";
-    return value
-      .map((item) => {
-        if (item && typeof item === "object") {
-          const rendered = toYaml(item, indent + 2);
-          return `${pad}- ${rendered.trimStart()}`;
-        }
-        return `${pad}- ${quoteYaml(item)}`;
-      })
-      .join("\n");
-  }
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value);
-    if (!entries.length) return "{}";
-    return entries
-      .map(([key, item]) => {
-        if (Array.isArray(item)) {
-          return item.length ? `${pad}${key}:\n${toYaml(item, indent + 2)}` : `${pad}${key}: []`;
-        }
-        if (item && typeof item === "object") {
-          return `${pad}${key}:\n${toYaml(item, indent + 2)}`;
-        }
-        return `${pad}${key}: ${quoteYaml(item)}`;
-      })
-      .join("\n");
-  }
-  return `${pad}${quoteYaml(value)}`;
-}
-
-// Replicates the agent-builder validateSpec contract (lib/generator.js). We
-// inline it instead of importing because the studio is a Next.js app and
-// agent-builder isn't (yet) a peer dep in package.json. If it becomes one,
-// switch to `import { validateSpec } from "agent-builder/lib/generator.js"`.
-export function validateSpec(spec) {
-  const errors = [];
-  if (!spec.projectName?.trim()) errors.push("Project name is required.");
-  if (!Array.isArray(spec.nodes) || spec.nodes.length === 0) {
-    errors.push("At least one node is required.");
-  }
-  const nodeIds = new Set((spec.nodes ?? []).map((node) => node.id));
-  for (const node of spec.nodes ?? []) {
-    if (!node.id) errors.push("Every node needs an id.");
-    if (!node.title) errors.push(`Node ${node.id || "(missing id)"} needs a title.`);
-  }
-  for (const edge of spec.edges ?? []) {
-    if (!nodeIds.has(edge.from)) errors.push(`Edge source ${edge.from} does not exist.`);
-    if (!nodeIds.has(edge.to)) errors.push(`Edge target ${edge.to} does not exist.`);
-  }
-  return errors;
-}
+// slugifySpec / toYaml / validateSpec now imported from @tyroneross/agent-spec
+// (top of file) and re-exported. The inline hand-copies — and the literal
+// "switch to import when it becomes a peer dep" comment — were removed during
+// the agent-platform consolidation. The package is byte-equivalent to the
+// removed copies (proven at extraction time).
 
 // ── Project → spec ─────────────────────────────────────────────────────────
 
