@@ -1,4 +1,4 @@
-# agent-platform
+# agent-builder-platform
 
 Monorepo consolidating the agent design → run → package lifecycle.
 

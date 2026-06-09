@@ -1,6 +1,6 @@
 // Extracted from agent-builder/lib/generator.js#validateSpec and reconciled with
 // agent-studio/app/lib/spec-export.mjs's byte-identical hand-copy. Single source
-// of truth for the agent-platform monorepo. Behavior is preserved exactly so the
+// of truth for the agent-builder-platform monorepo. Behavior is preserved exactly so the
 // studio round-trip harness passes unchanged; role validation is ADDITIVE and
 // non-breaking (it never adds an error, only normalizes via canonicalRole on read).
 
