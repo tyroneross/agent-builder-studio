@@ -238,8 +238,18 @@ Hermes 3 and Granite 3 are agent-focused fine-tunes. Both publish strong tool-us
 1. Re-run `gemma4:26b` without `format: json`, asking for JSON via prompt only. Confirms whether the failure is grammar-only or training.
 2. Run `qwen2.5-coder:32b-instruct-q5_K_M` against the same fixture as `gpt-oss:20b`. Direct head-to-head.
 3. Pull and run `mistral-small:24b-instruct-3.2` against the same fixture. Targeted at the failure class hit here.
-4. Add a quality scorecard (rubric: completeness, owner-coverage, decision-clarity, schedule-realism, risk-surface) so future runs are graded, not just gated.
-5. Multi-seed runs on the daily driver to characterize variance.
+4. Use the new quality scorecard emitted by `npm run cos:run -- --json`; it grades completeness, owner coverage, decision clarity, schedule realism, and risk surface.
+5. Use deterministic multi-seed runs on the daily driver to characterize variance:
+
+```bash
+npm run cos:run -- --model qwen3:8b-q4_K_M --seed-count=3 --json
+```
+
+For full structure validation, use the resumable runner:
+
+```bash
+npm run agent:validate:local -- --llm=ollama --model tinyllama:latest --chunk-size=2 --state runs/local-validation/tinyllama/state.json
+```
 
 ## Appendix A: Sample output from `gpt-oss:20b`
 

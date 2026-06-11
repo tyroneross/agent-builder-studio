@@ -26,6 +26,25 @@ Source contract:
 Enable rule: do not turn this on until the user explicitly approves the runner
 implementation and the repo-write/guard-execution boundaries are reviewed.
 
+## Implementation Plan Only
+
+This section is intentionally a plan, not an implementation.
+
+1. Keep the feature flag default off and require an explicit manual command for
+   every run.
+2. Reuse the existing local validation state format so partial overnight work
+   can resume without rerunning completed repo/track packets.
+3. Treat every target repo as read-only unless a per-run approval file names the
+   repo, allowed paths, guard commands, and maximum write scope.
+4. Write the morning packet under `agent-outputs/nightly-doe/<run-id>/` with:
+   repo summaries, local-model caveats, confidence labels, artifacts produced,
+   failures, and why-not-trust-yet notes.
+5. Add a dry-run validator before any executable runner ships. The validator
+   should prove the repo list, output path containment, feature-flag state, and
+   no-write default.
+6. Add the executable runner only after reviewing the repo-write and
+   guard-execution boundaries.
+
 ## Cross-Repo Contract
 
 Repo descriptor:

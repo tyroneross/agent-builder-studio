@@ -5,7 +5,7 @@ export const maxDuration = 1800;
 
 export async function POST(request) {
   const body = await request.json().catch(() => ({}));
-  const { model, schedule, goals, allowCloud, maxCloudTokens } = body ?? {};
+  const { model, schedule, goals, feedback, allowCloud, maxCloudTokens, seed } = body ?? {};
 
   // `model` may be omitted to use the per-node cascade defaults. When it IS
   // provided, we collapse the cascade to a single user-override step so the
@@ -24,10 +24,12 @@ export async function POST(request) {
           model,
           schedule,
           goals,
+          feedback,
           onEvent: send,
           modelOverride,
           allowCloud,
           maxCloudTokens,
+          seed: Number.isFinite(seed) ? seed : undefined,
         });
       } catch (err) {
         send({ type: "fatal", error: err?.message ?? String(err) });

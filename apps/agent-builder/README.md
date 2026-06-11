@@ -99,6 +99,7 @@ Agent structure scan:
 npm run agent:scan
 npm run agent:scan -- --run --llm=fixture
 npm run agent:scan -- --run --llm=ollama --model=tinyllama:latest
+npm run agent:validate:local -- --llm=ollama --model=tinyllama:latest --chunk-size=2 --state runs/local-validation/tinyllama/state.json
 npm run agent:doe
 npm run agents:artifacts:doe
 ```

@@ -31,19 +31,24 @@ USAGE
 INPUT FLAGS
   --schedule <path>       Path to a JSON schedule file. Defaults to the
                           bundled sample at agent-outputs/...
-  --goals <path>          Path to a goals text file. Defaults to a built-in
-                          productivity goal.
-  --out <dir>             Per-run output directory. Defaults to
-                          ./runs/<iso-timestamp>/.
+	  --goals <path>          Path to a goals text file. Defaults to a built-in
+	                          productivity goal.
+	  --feedback <path>       Optional prior-week feedback JSON or text. Injected
+	                          into triage and time-block planning.
+	  --out <dir>             Per-run output directory. Defaults to
+	                          ./runs/<iso-timestamp>/.
 
 CASCADE FLAGS
   --allow-cloud <value>   never | on-failure (default) | always
   --max-cloud-tokens <n>  Cap cloud usage. Default 200000. Ignored when
                           --allow-cloud=never.
-  --model <name>          Legacy single-model override (Ollama only).
-                          Collapses the cascade to one step.
-  --models <a,b,c>        Run the agent N times, once per model. Each run
-                          gets its own subdirectory under --out.
+	  --model <name>          Legacy single-model override (Ollama only).
+	                          Collapses the cascade to one step.
+	  --models <a,b,c>        Run the agent N times, once per model. Each run
+	                          gets its own subdirectory under --out.
+	  --seed <n>              Deterministic Ollama seed for one run.
+	  --seeds <a,b,c>         Run each model with each listed seed.
+	  --seed-count <n>        Convenience for seeds 1..n.
 
 OUTPUT FLAGS
   --summary               Print a per-node digest after each run (default ON).
@@ -73,11 +78,14 @@ EXAMPLES
   node scripts/run-chief-of-staff.mjs
 
   # Cloud always, JSON output for piping into jq or another tool:
-  node scripts/run-chief-of-staff.mjs --allow-cloud=always --json | jq .
+	  node scripts/run-chief-of-staff.mjs --allow-cloud=always --json | jq .
 
-  # Single-model legacy run, no summary:
-  node scripts/run-chief-of-staff.mjs --model qwen3:8b-q4_K_M --no-summary
-`;
+	  # Single-model legacy run, no summary:
+	  node scripts/run-chief-of-staff.mjs --model qwen3:8b-q4_K_M --no-summary
+
+	  # Multi-seed local evaluation:
+	  node scripts/run-chief-of-staff.mjs --model qwen3:8b-q4_K_M --seed-count=3 --json
+	`;
 
 if (hasFlag("--help") || hasFlag("-h")) {
   process.stdout.write(HELP.trim() + "\n");
@@ -86,6 +94,7 @@ if (hasFlag("--help") || hasFlag("-h")) {
 
 const scheduleArg = arg("--schedule");
 const goalsArg = arg("--goals");
+const feedbackArg = arg("--feedback");
 const baseOut = arg("--out", join(ROOT, "runs", new Date().toISOString().replace(/[:.]/g, "-")));
 
 // Output mode flags. `--json` forces silent stdout (no [cos] chatter on
@@ -112,6 +121,7 @@ const LEGACY_SINGLE_DEFAULT = "qwen3:8b-q4_K_M";
 const MODELS = modelsArg
   ? modelsArg.split(",").map((s) => s.trim()).filter(Boolean).map((m) => m === "default" ? LEGACY_SINGLE_DEFAULT : m)
   : [null]; // null = use cascade defaults
+const SEEDS = parseSeeds();
 
 const TIMEOUT_MS = Number(process.env.AGENT_BUILDER_LLM_TIMEOUT_MS ?? 900000);
 
@@ -126,13 +136,16 @@ const maxCloudTokens = maxCloudTokensRaw != null ? Number(maxCloudTokensRaw) : u
 
 const schedule = await readMaybe(scheduleArg);
 const goals = await readMaybe(goalsArg);
+const feedbackText = await readMaybe(feedbackArg);
+const feedback = parseFeedback(feedbackText);
 
-async function runForModel(modelName) {
+async function runForModel(modelName, seed) {
   const safe = (modelName ?? "cascade").replace(/[^a-z0-9]+/gi, "-");
-  const outDir = MODELS.length > 1 ? join(baseOut, safe) : baseOut;
+  const seedSafe = Number.isFinite(seed) ? `seed-${seed}` : "seed-none";
+  const outDir = MODELS.length > 1 || SEEDS.length > 1 ? join(baseOut, safe, seedSafe) : baseOut;
   await mkdir(outDir, { recursive: true });
   log(
-    `\n[cos] === ${modelName ? `model=${modelName}` : "cascade"} allow-cloud=${allowCloud ?? "on-failure(default)"} -> ${outDir} ===`,
+    `\n[cos] === ${modelName ? `model=${modelName}` : "cascade"} seed=${Number.isFinite(seed) ? seed : "none"} allow-cloud=${allowCloud ?? "on-failure(default)"} -> ${outDir} ===`,
   );
 
   const onEvent = (ev) => {
@@ -160,13 +173,15 @@ async function runForModel(modelName) {
   const modelOverride = modelName ? { provider: "ollama", model: modelName } : null;
 
   const { transcript, brief } = await runChiefOfStaff({
-    model: modelName ?? "(cascade)",
-    schedule,
-    goals,
-    onEvent,
-    timeoutMs: TIMEOUT_MS,
-    allowCloud,
-    maxCloudTokens,
+	    model: modelName ?? "(cascade)",
+	    schedule,
+	    goals,
+	    feedback,
+	    onEvent,
+	    timeoutMs: TIMEOUT_MS,
+	    seed,
+	    allowCloud,
+	    maxCloudTokens,
     modelOverride,
     runDir: outDir,
   });
@@ -191,18 +206,20 @@ async function runForModel(modelName) {
     log(formatSummary(summary));
   }
 
-  return { model: modelName ?? "cascade", outDir, brief, transcript, summary };
+  return { model: modelName ?? "cascade", seed: Number.isFinite(seed) ? seed : null, outDir, brief, transcript, summary };
 }
 
 const results = [];
 for (const m of MODELS) {
-  results.push(await runForModel(m));
+  for (const seed of SEEDS) {
+    results.push(await runForModel(m, seed));
+  }
 }
 
 if (results.length > 1 && !JSON_MODE) {
   log(`\n[cos] all models done. Compare:`);
   for (const r of results) {
-    log(`  - ${r.model}: ${join(r.outDir, "weekly-operating-brief.md")}`);
+    log(`  - ${r.model}${Number.isFinite(r.seed) ? ` seed=${r.seed}` : ""}: ${join(r.outDir, "weekly-operating-brief.md")}`);
   }
 }
 
@@ -210,20 +227,53 @@ if (JSON_MODE) {
   // One JSON object per run (or wrapped in `runs[]` if --models was multi).
   const payload = results.length === 1
     ? {
-        model: results[0].model,
-        outDir: results[0].outDir,
-        brief: results[0].brief,
-        summary: results[0].summary,
-        transcript: results[0].transcript,
+	        model: results[0].model,
+	        seed: results[0].seed,
+	        outDir: results[0].outDir,
+	        brief: results[0].brief,
+	        qualityScorecard: results[0].transcript.qualityScorecard,
+	        summary: results[0].summary,
+	        transcript: results[0].transcript,
       }
     : {
         runs: results.map((r) => ({
-          model: r.model,
-          outDir: r.outDir,
-          brief: r.brief,
-          summary: r.summary,
-          transcript: r.transcript,
-        })),
-      };
-  process.stdout.write(JSON.stringify(payload) + "\n");
+	          model: r.model,
+	          seed: r.seed,
+	          outDir: r.outDir,
+	          brief: r.brief,
+	          qualityScorecard: r.transcript.qualityScorecard,
+	          summary: r.summary,
+	          transcript: r.transcript,
+	        })),
+	      };
+	  process.stdout.write(JSON.stringify(payload) + "\n");
+}
+
+function parseFeedback(text) {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
+function parseSeeds() {
+  const seedsArg = flagWithEqual("--seeds") ?? arg("--seeds");
+  if (seedsArg) {
+    const seeds = seedsArg
+      .split(",")
+      .map((item) => Number(item.trim()))
+      .filter((item) => Number.isInteger(item));
+    return seeds.length ? seeds : [undefined];
+  }
+  const countArg = flagWithEqual("--seed-count") ?? arg("--seed-count");
+  const count = Number(countArg);
+  if (Number.isInteger(count) && count > 0) {
+    return Array.from({ length: count }, (_, index) => index + 1);
+  }
+  const seedArg = flagWithEqual("--seed") ?? arg("--seed");
+  const seed = Number(seedArg);
+  return Number.isInteger(seed) ? [seed] : [undefined];
 }

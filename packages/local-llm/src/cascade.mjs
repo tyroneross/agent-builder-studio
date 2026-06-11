@@ -48,6 +48,7 @@ function cloudBudgetExhausted(budget) {
  * @param {string} [args.jsonSchemaName]
  * @param {string} [args.role]
  * @param {number} [args.timeoutMs]
+ * @param {number} [args.seed]
  * @param {Function} [args.onChunk]
  * @param {Function} [args.recordTelemetry]  ({lane,provider,model,ms,parsed_ok,...}) => void
  * @param {string} [args.nodeKey]
@@ -63,6 +64,7 @@ export async function tryStep({
   jsonSchemaName,
   role,
   timeoutMs = 60000,
+  seed,
   onChunk,
   recordTelemetry = noop,
   nodeKey,
@@ -80,6 +82,7 @@ export async function tryStep({
     jsonSchema,
     jsonSchemaName,
     timeoutMs,
+    seed,
     onChunk,
   });
   const firstMs = Date.now() - t0;
@@ -117,6 +120,7 @@ export async function tryStep({
     jsonSchema,
     jsonSchemaName,
     timeoutMs,
+    seed,
     onChunk,
   });
   const secondMs = Date.now() - t1;
@@ -152,6 +156,7 @@ export async function runCascade({
   jsonSchemaName,
   role,
   timeoutMs = 60000,
+  seed,
   onEvent = noop,
   recordTelemetry = noop,
   chat = defaultChat,
@@ -206,6 +211,7 @@ export async function runCascade({
       jsonSchemaName,
       role: role ?? node.role,
       timeoutMs,
+      seed,
       onChunk: (_chunk, totalBytes) => onEvent({ type: "node-chunk", key: node.key, bytes: totalBytes }),
       recordTelemetry: meteredTelemetry,
       nodeKey: node.key,

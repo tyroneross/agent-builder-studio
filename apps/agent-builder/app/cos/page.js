@@ -14,9 +14,16 @@
 //   pending → trying (cascade-attempt) → ok (node-end) | failed (node-error)
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CalendarCheck, Download, Upload } from "lucide-react";
 import CascadeTimeline, { NODE_ORDER } from "./components/CascadeTimeline";
 import CloudControls from "./components/CloudControls";
 import TelemetryPanel from "./components/TelemetryPanel";
+import { describeScheduleInput, normalizeScheduleInput } from "../../lib/cos-schedule-input.mjs";
+import {
+  buildApprovedCalendarIcs,
+  calendarBlocksFromTranscript,
+  calendarReviewStats,
+} from "../../lib/cos-calendar-export.mjs";
 
 const EMPTY_NODE = { status: "pending" };
 
@@ -26,7 +33,11 @@ const initialNodes = () =>
 export default function CosPage() {
   // ---------- input state ----------
   const [schedule, setSchedule] = useState("");
+  const [scheduleMeta, setScheduleMeta] = useState(null);
   const [goals, setGoals] = useState("");
+  const [actualFocus, setActualFocus] = useState("");
+  const [followThrough, setFollowThrough] = useState("");
+  const [feedbackNotes, setFeedbackNotes] = useState("");
   const [sample, setSample] = useState(null); // last loaded sample for restore-button label
   const [running, setRunning] = useState(false);
   const [showAbout, setShowAbout] = useState(true);
@@ -44,9 +55,11 @@ export default function CosPage() {
   const [summary, setSummary] = useState(null);
   const [brief, setBrief] = useState("");
   const [transcript, setTranscript] = useState(null);
+  const [calendarDrafts, setCalendarDrafts] = useState([]);
   const [error, setError] = useState("");
 
   const abortRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // ---------- bootstrap: env-status + sample schedule ----------
   useEffect(() => {
@@ -69,12 +82,17 @@ export default function CosPage() {
   function loadSample() {
     if (!sample) return;
     setSchedule(sample.schedule);
+    setScheduleMeta(normalizeScheduleInput(sample.schedule));
     if (sample.goal) setGoals(sample.goal);
   }
 
   function clearAll() {
     setSchedule("");
+    setScheduleMeta(null);
     setGoals("");
+    setActualFocus("");
+    setFollowThrough("");
+    setFeedbackNotes("");
   }
 
   // ---------- run lifecycle ----------
@@ -83,6 +101,7 @@ export default function CosPage() {
     setError("");
     setBrief("");
     setTranscript(null);
+    setCalendarDrafts([]);
     setSummary(null);
     setLessons(null);
     setWarmup(null);
@@ -105,6 +124,7 @@ export default function CosPage() {
         body: JSON.stringify({
           schedule,
           goals,
+          feedback: buildFeedbackPayload(),
           allowCloud,
         }),
         signal: ac.signal,
@@ -222,12 +242,59 @@ export default function CosPage() {
   }
 
   const scheduleLooksLikeJson = /^\s*[\[{]/.test(schedule.trim());
+  const schedulePreview = useMemo(
+    () => (schedule.trim() ? normalizeScheduleInput(schedule) : null),
+    [schedule],
+  );
+  const activeScheduleMeta = scheduleMeta ?? schedulePreview;
+  const calendarStats = useMemo(() => calendarReviewStats(calendarDrafts), [calendarDrafts]);
+  const approvedCalendarUrl = useMemo(() => {
+    if (!calendarDrafts.length || calendarStats.approved === 0) return null;
+    const weekOf = transcript?.nodes?.intake?.parsed?.weekOf;
+    return blobUrl(buildApprovedCalendarIcs(calendarDrafts, { weekOf }), "text/calendar");
+  }, [calendarDrafts, calendarStats.approved, transcript]);
   const canRun = useMemo(
     () => !running && (schedule.trim().length > 0 || goals.trim().length > 0 || sample != null),
     [running, schedule, goals, sample],
   );
   const allLanesUnreachable =
     error && error.includes("unreachable") && envStatus && !envStatus.groq && !envStatus.anthropic && !envStatus.openai;
+
+  useEffect(() => {
+    setCalendarDrafts(calendarBlocksFromTranscript(transcript));
+  }, [transcript]);
+
+  async function importScheduleFile(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const text = await file.text();
+    const meta = normalizeScheduleInput(text, { fileName: file.name });
+    setSchedule(meta.sourceType === "ics" ? meta.normalizedText : text);
+    setScheduleMeta(meta);
+  }
+
+  function updateSchedule(value) {
+    setSchedule(value);
+    setScheduleMeta(null);
+  }
+
+  function buildFeedbackPayload() {
+    const payload = {
+      actualFocus,
+      followThrough,
+      notes: feedbackNotes,
+    };
+    return Object.fromEntries(Object.entries(payload).filter(([, value]) => String(value ?? "").trim()));
+  }
+
+  function updateCalendarDraft(id, key, value) {
+    setCalendarDrafts((items) => items.map((item) => item.id === id ? { ...item, [key]: value } : item));
+  }
+
+  function toggleCalendarDraft(id) {
+    setCalendarDrafts((items) => items.map((item) => item.id === id ? { ...item, approved: !item.approved } : item));
+  }
 
   return (
     <div className="cos-shell">
@@ -317,6 +384,22 @@ export default function CosPage() {
                 Load sample
               </button>
             )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".ics,text/calendar"
+              hidden
+              onChange={importScheduleFile}
+            />
+            <button
+              type="button"
+              className="cos-secondary cos-icon-text"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={running}
+            >
+              <Upload size={14} />
+              Import .ics
+            </button>
             <button
               type="button"
               className="cos-secondary"
@@ -333,10 +416,10 @@ export default function CosPage() {
           <textarea
             rows={8}
             value={schedule}
-            onChange={(e) => setSchedule(e.target.value)}
+            onChange={(e) => updateSchedule(e.target.value)}
             disabled={running}
             placeholder={
-              "Mon 9-11am: deep work on the migration\nMon 2pm: 1:1 with Sam\nTue 10-12: pitch dry run with team\nWed all day: heads-down\nThu 3-5pm: customer call\n\n— OR — paste your calendar export, OR — load the sample below."
+              "Mon 9-11am: deep work on the migration\nMon 2pm: 1:1 with Sam\nTue 10-12: pitch dry run with team\nWed all day: heads-down\nThu 3-5pm: customer call\n\nOR paste a VCALENDAR export, import .ics, or load the sample."
             }
             spellCheck={false}
           />
@@ -350,11 +433,18 @@ export default function CosPage() {
               {showRawJson ? "▾ Hide JSON wire view" : "▸ Show JSON wire view"}
             </button>
             <span className="cos-field-hint">
-              {scheduleLooksLikeJson
-                ? "Looks like JSON — will be passed through directly."
+              {activeScheduleMeta
+                ? describeScheduleInput(activeScheduleMeta)
                 : "Free text gets parsed by the intake step into structured JSON before planning."}
             </span>
           </div>
+          {activeScheduleMeta?.warnings?.length > 0 && (
+            <ul className="cos-inline-warnings">
+              {activeScheduleMeta.warnings.map((warning, index) => (
+                <li key={index}>{warning}</li>
+              ))}
+            </ul>
+          )}
         </label>
 
         {showRawJson && (
@@ -363,7 +453,7 @@ export default function CosPage() {
             <textarea
               rows={10}
               value={schedule}
-              onChange={(e) => setSchedule(e.target.value)}
+              onChange={(e) => updateSchedule(e.target.value)}
               disabled={running}
               placeholder='{"weekOf": "2026-05-12", "fixedEvents": [{"day":"Mon","start":"09:00","end":"11:00","title":"Deep work","kind":"deep"}], "flexibleEvents": []}'
               spellCheck={false}
@@ -385,6 +475,38 @@ export default function CosPage() {
             placeholder="e.g. Ship the migration this week. Or: organize all the kid summer camps."
           />
         </label>
+
+        <fieldset className="cos-feedback">
+          <legend>Weekly feedback</legend>
+          <label>
+            <span>Actual focus</span>
+            <input
+              value={actualFocus}
+              onChange={(e) => setActualFocus(e.target.value)}
+              disabled={running}
+              placeholder="e.g. 6 focused hours; Wednesday derailed by calls"
+            />
+          </label>
+          <label>
+            <span>Follow-through</span>
+            <input
+              value={followThrough}
+              onChange={(e) => setFollowThrough(e.target.value)}
+              disabled={running}
+              placeholder="e.g. shipped migration review; missed partner follow-up"
+            />
+          </label>
+          <label className="cos-feedback-wide">
+            <span>Notes</span>
+            <textarea
+              rows={3}
+              value={feedbackNotes}
+              onChange={(e) => setFeedbackNotes(e.target.value)}
+              disabled={running}
+              placeholder="Plan changes to preserve, habits to avoid, or explicit lessons from last week."
+            />
+          </label>
+        </fieldset>
 
         <div className="cos-actions">
           {!running ? (
@@ -430,6 +552,66 @@ export default function CosPage() {
           transcript={transcript}
           lessons={lessons?.lessons}
         />
+      )}
+
+      {calendarDrafts.length > 0 && (
+        <section className="cos-calendar-review">
+          <header className="cos-calendar-head">
+            <div>
+              <h2>Calendar review</h2>
+              <p>{calendarStats.approved}/{calendarStats.total} approved</p>
+            </div>
+            {approvedCalendarUrl && (
+              <a
+                href={approvedCalendarUrl}
+                download="chief-of-staff-approved-blocks.ics"
+                className="cos-download-button"
+              >
+                <Download size={14} />
+                Download .ics
+              </a>
+            )}
+          </header>
+          <div className="cos-calendar-list">
+            {calendarDrafts.map((item) => (
+              <div className={`cos-calendar-row ${item.approved ? "" : "is-rejected"}`} key={item.id}>
+                <label className="cos-check">
+                  <input
+                    type="checkbox"
+                    checked={item.approved}
+                    onChange={() => toggleCalendarDraft(item.id)}
+                  />
+                  <CalendarCheck size={16} />
+                </label>
+                <input
+                  aria-label="Day"
+                  value={item.day}
+                  onChange={(e) => updateCalendarDraft(item.id, "day", e.target.value)}
+                />
+                <input
+                  aria-label="Start"
+                  value={item.start}
+                  onChange={(e) => updateCalendarDraft(item.id, "start", e.target.value)}
+                />
+                <input
+                  aria-label="End"
+                  value={item.end}
+                  onChange={(e) => updateCalendarDraft(item.id, "end", e.target.value)}
+                />
+                <input
+                  aria-label="Mode"
+                  value={item.mode}
+                  onChange={(e) => updateCalendarDraft(item.id, "mode", e.target.value)}
+                />
+                <input
+                  aria-label="Why"
+                  value={item.why}
+                  onChange={(e) => updateCalendarDraft(item.id, "why", e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {brief && (
@@ -560,6 +742,13 @@ export default function CosPage() {
           color: var(--muted);
           font-size: 12px;
         }
+        .cos-inline-warnings {
+          margin: 2px 0 0;
+          padding-left: 18px;
+          color: var(--danger);
+          font-size: 12px;
+          line-height: 1.4;
+        }
         .cos-json-view {
           margin: 0 0 14px;
           padding: 10px 12px;
@@ -614,6 +803,7 @@ export default function CosPage() {
         .cos-form-actions {
           display: flex;
           gap: 8px;
+          flex-wrap: wrap;
         }
         .cos-field {
           display: grid;
@@ -632,6 +822,61 @@ export default function CosPage() {
           font-size: 13px;
           line-height: 1.45;
           resize: vertical;
+        }
+        .cos-icon-text {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .cos-feedback {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+          margin: 0 0 14px;
+          padding: 12px;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          background: var(--bg);
+        }
+        .cos-feedback legend {
+          padding: 0 6px;
+          color: var(--muted);
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+        }
+        .cos-feedback label {
+          display: grid;
+          gap: 6px;
+        }
+        .cos-feedback span {
+          color: var(--muted);
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+        .cos-feedback input,
+        .cos-feedback textarea,
+        .cos-calendar-row input {
+          width: 100%;
+          min-width: 0;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          background: var(--surface);
+          color: var(--ink);
+        }
+        .cos-feedback input {
+          min-height: 36px;
+          padding: 0 10px;
+        }
+        .cos-feedback textarea {
+          padding: 9px 10px;
+          resize: vertical;
+        }
+        .cos-feedback-wide {
+          grid-column: 1 / -1;
         }
         .cos-actions {
           display: flex;
@@ -709,6 +954,90 @@ export default function CosPage() {
         .cos-error a {
           color: inherit;
         }
+        .cos-calendar-review {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 16px 18px;
+          margin-bottom: 12px;
+        }
+        .cos-calendar-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+        .cos-calendar-head h2 {
+          margin: 0;
+          font-size: 14px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+        .cos-calendar-head p {
+          margin: 3px 0 0;
+          color: var(--muted);
+          font-size: 12px;
+        }
+        .cos-download-button {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          min-height: 36px;
+          padding: 0 12px;
+          border-radius: 8px;
+          background: var(--accent);
+          color: #fff;
+          font-size: 12px;
+          font-weight: 700;
+          text-decoration: none;
+        }
+        .cos-download-button:hover {
+          background: var(--accent-strong);
+        }
+        .cos-calendar-list {
+          display: grid;
+          gap: 8px;
+        }
+        .cos-calendar-row {
+          display: grid;
+          grid-template-columns: 32px minmax(72px, 0.7fr) minmax(64px, 0.55fr) minmax(64px, 0.55fr) minmax(150px, 1.2fr) minmax(220px, 1.8fr);
+          gap: 8px;
+          align-items: center;
+        }
+        .cos-calendar-row.is-rejected {
+          opacity: 0.52;
+        }
+        .cos-calendar-row input {
+          min-height: 34px;
+          padding: 0 8px;
+          font-size: 12px;
+        }
+        .cos-check {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--accent-strong);
+        }
+        .cos-check input {
+          position: absolute;
+          opacity: 0;
+          pointer-events: none;
+        }
+        .cos-check svg {
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          width: 28px;
+          height: 28px;
+          padding: 5px;
+          background: var(--accent-soft);
+        }
+        .cos-calendar-row.is-rejected .cos-check svg {
+          background: var(--surface-muted);
+          color: var(--faint);
+        }
         .cos-brief h2 {
           margin: 0 0 12px;
           font-size: 14px;
@@ -729,7 +1058,30 @@ export default function CosPage() {
           border-radius: 8px;
           border: 1px solid var(--border);
         }
+        @media (max-width: 760px) {
+          .cos-form-head,
+          .cos-calendar-head {
+            align-items: flex-start;
+            flex-direction: column;
+          }
+          .cos-feedback {
+            grid-template-columns: 1fr;
+          }
+          .cos-calendar-row {
+            grid-template-columns: 32px 1fr 1fr;
+          }
+          .cos-calendar-row input[aria-label="Mode"],
+          .cos-calendar-row input[aria-label="Why"] {
+            grid-column: 2 / -1;
+          }
+        }
       `}</style>
     </div>
   );
+}
+
+function blobUrl(text, type) {
+  if (typeof window === "undefined") return null;
+  const blob = new Blob([text], { type });
+  return URL.createObjectURL(blob);
 }

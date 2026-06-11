@@ -142,14 +142,28 @@ commands used as guardrails.
 - HTML outputs are local and do not include external links.
 - Calendar output is a static `.ics` file; the agent does not send invites.
 
-## Next Improvements
+## Latest Product Follow-up
 
-- Accept real calendar `.ics` or pasted schedule input from the user.
-- Add a weekly feedback form so the learning ledger can compare planned vs
-  actual focus and follow-through.
-- Add a chunked local-model evaluation runner for slow models.
-- Add a small UI panel for approving, rejecting, or editing proposed calendar
-  changes before export.
+- Real calendar `.ics` input is accepted through the Chief of Staff UI import
+  flow and by pasting VCALENDAR text. The server normalizes `.ics` into the
+  existing schedule JSON contract before the intake node runs.
+- The UI now captures weekly feedback for actual focus, follow-through, and
+  operator notes. The runner injects that feedback into triage and time-block
+  planning through the feedback-loop skill.
+- The run transcript and brief now include a Chief of Staff quality scorecard:
+  completeness, owner coverage, decision clarity, schedule realism, and risk
+  surface.
+- Proposed time blocks now render in a calendar review panel where the user can
+  approve, reject, edit, and download only approved blocks as `.ics`.
+- Slow local-model validation can run by structure through
+  `npm run agent:validate:local -- --chunk-size=<n> --state=<path>`.
+
+## Remaining Improvements
+
+- Run live multi-model local validation once the target Ollama models are
+  installed locally.
+- Expand feedback storage from per-run transcript metadata into a durable
+  operator review history if repeated weekly use proves valuable.
 
 ## 50-Run DOE Follow-up
 

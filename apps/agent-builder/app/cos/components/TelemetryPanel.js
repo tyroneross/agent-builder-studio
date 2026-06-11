@@ -22,6 +22,7 @@ export default function TelemetryPanel({ summary, brief, transcript, lessons }) 
   if (!summary) return null;
 
   const t = summary.totals;
+  const quality = transcript?.qualityScorecard ?? null;
   const briefBlobUrl = useMemo(
     () => (brief ? blobUrl(brief, "text/markdown") : null),
     [brief],
@@ -36,6 +37,10 @@ export default function TelemetryPanel({ summary, brief, transcript, lessons }) 
   const telemetryBlobUrl = useMemo(
     () => buildTelemetryJsonlBlobUrl(summary),
     [summary],
+  );
+  const scorecardBlobUrl = useMemo(
+    () => quality ? blobUrl(JSON.stringify(quality, null, 2), "application/json") : null,
+    [quality],
   );
 
   return (
@@ -71,6 +76,23 @@ export default function TelemetryPanel({ summary, brief, transcript, lessons }) 
             </div>
           )}
 
+          {quality && (
+            <div className="cos-scorecard">
+              <h3>Quality scorecard</h3>
+              <dl>
+                <Stat label="Score" value={`${quality.score}/${quality.maxScore}`} />
+                <Stat label="Status" value={quality.status} />
+              </dl>
+              <ul>
+                {quality.dimensions.map((item) => (
+                  <li key={item.id}>
+                    <strong>{item.label}</strong>: {item.score}/{item.maxScore}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="cos-downloads">
             {telemetryBlobUrl && (
               <a
@@ -100,6 +122,16 @@ export default function TelemetryPanel({ summary, brief, transcript, lessons }) 
                 data-test="dl-transcript"
               >
                 Download transcript.json
+              </a>
+            )}
+            {scorecardBlobUrl && (
+              <a
+                href={scorecardBlobUrl}
+                download="quality-scorecard.json"
+                className="cos-download-link"
+                data-test="dl-scorecard"
+              >
+                Download quality-scorecard.json
               </a>
             )}
           </div>
@@ -168,6 +200,38 @@ export default function TelemetryPanel({ summary, brief, transcript, lessons }) 
           font-size: 13px;
           line-height: 1.45;
           margin-bottom: 4px;
+        }
+        .cos-scorecard {
+          margin: 16px 0;
+          padding: 12px 14px;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+        }
+        .cos-scorecard h3 {
+          margin: 0 0 8px;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+        .cos-scorecard dl {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+          gap: 10px;
+          margin: 0 0 8px;
+        }
+        .cos-scorecard ul {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 6px 14px;
+          margin: 0;
+          padding-left: 18px;
+        }
+        .cos-scorecard li {
+          font-size: 13px;
+          line-height: 1.4;
         }
         .cos-downloads {
           display: flex;

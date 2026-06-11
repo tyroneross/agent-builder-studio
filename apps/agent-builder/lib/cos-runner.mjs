@@ -18,6 +18,8 @@ import {
 import { NODE_ROLE, roleBriefFor, roleNameFor, effectiveTierOverride } from "./cos-roles.mjs";
 import { recordTelemetry, flushTelemetry } from "./cos-telemetry.mjs";
 import { summarizeFile } from "./cos-summary.mjs";
+import { describeScheduleInput, normalizeScheduleInput } from "./cos-schedule-input.mjs";
+import { buildChiefOfStaffQualityScorecard, formatQualityScorecardMarkdown } from "./cos-quality-scorecard.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const AGENT_DIR = join(ROOT, "generated/agents/chief-of-staff-agent");
@@ -63,10 +65,11 @@ const HARD_RULES = [
 let _cachedContext = null;
 async function loadContext() {
   if (_cachedContext) return _cachedContext;
-  const [team, skillIntake, skillPlan] = await Promise.all([
+  const [team, skillIntake, skillPlan, skillFeedback] = await Promise.all([
     readFile(TEAM_FILE, "utf8"),
     readFile(join(SKILL_DIR, "schedule-intake.skill.md"), "utf8"),
     readFile(join(SKILL_DIR, "100x-productivity-planning.skill.md"), "utf8"),
+    readFile(join(SKILL_DIR, "feedback-loop.skill.md"), "utf8"),
   ]);
   // Strip the `## Team` section from the cached team brief: each role gets
   // its own scoped mission+guardrails via roleBriefFor() in the dynamic block,
@@ -85,7 +88,7 @@ async function loadContext() {
     .split("\n")
     .filter((l) => l.trim())
     .join("\n");
-  _cachedContext = { teamBrief, skillIntake, skillPlan };
+  _cachedContext = { teamBrief, skillIntake, skillPlan, skillFeedback };
   return _cachedContext;
 }
 
@@ -319,6 +322,8 @@ export function buildBrief({ model, transcript }) {
     ...risks.map(
       (r) => `- [${r.severity}] ${r.risk}${r.mitigation ? ` → ${r.mitigation}` : ""}`,
     ),
+    ``,
+    formatQualityScorecardMarkdown(transcript.qualityScorecard),
   ].join("\n");
 }
 
@@ -408,7 +413,10 @@ async function runOneNode({
   modelOverride,
   goalsRaw,
   scheduleRaw,
+  scheduleMeta,
+  feedbackPrompt,
   timeoutMs,
+  seed,
   onEvent,
   runDir,
   transcript,
@@ -462,12 +470,25 @@ async function runOneNode({
     });
   }
 
+  if (node.key === "intake" && scheduleMeta) {
+    system.push({
+      type: "text",
+      text: `Schedule source: ${describeScheduleInput(scheduleMeta)} Preserve imported calendar event titles, dates, and fixed-event constraints.`,
+    });
+  }
+
+  if (feedbackPrompt && ["triage", "time_block_plan"].includes(node.key)) {
+    system.push({
+      type: "text",
+      text: feedbackPrompt,
+    });
+  }
+
   // Schedule input may arrive as JSON (legacy / power-user path) or as a
   // free-text description (natural-language path from the /cos UI). We label
   // it neutrally and instruct the model to handle either; the intake node
   // normalizes both shapes into structured JSON before downstream nodes run.
-  const looksLikeJson = /^\s*[\[{]/.test(scheduleRaw);
-  const scheduleLabel = looksLikeJson
+  const scheduleLabel = scheduleMeta?.sourceType === "json" || scheduleMeta?.sourceType === "ics"
     ? "Schedule input (JSON):"
     : "Schedule input (free text — describe events, times, owners; one event per line is fine):";
 
@@ -496,6 +517,7 @@ async function runOneNode({
     jsonSchemaName: `${node.key}_output`,
     role: node.role ?? null,
     timeoutMs,
+    seed,
     onEvent,
     // Telemetry seam: the package emits domain-free records; bind them to this
     // run's JSONL destination. The package's chat() is the SAME module instance
@@ -661,8 +683,10 @@ export async function runChiefOfStaff({
   model,
   schedule,
   goals,
+  feedback,
   onEvent = () => {},
   timeoutMs = 900000,
+  seed,
   // New: cascade controls
   allowCloud,
   maxCloudTokens,
@@ -685,8 +709,12 @@ export async function runChiefOfStaff({
     n.tierOverride = effectiveTierOverride(n.key);
   }
   const goalsRaw = (goals ?? "").trim() || DEFAULT_GOAL;
-  const scheduleRaw =
+  const scheduleInputRaw =
     (schedule ?? "").trim() || (await readFile(SAMPLE_INPUT, "utf8"));
+  const scheduleMeta = normalizeScheduleInput(scheduleInputRaw);
+  const scheduleRaw = scheduleMeta.normalizedText || scheduleInputRaw;
+  const feedbackInput = normalizeFeedback(feedback);
+  const feedbackPrompt = formatFeedbackPrompt(feedbackInput, ctx.skillFeedback);
 
   const policy = cascadePolicy({ allowCloud, maxCloudTokens });
   // One budget object per run, shared by every node's cascade. Automatic —
@@ -696,8 +724,17 @@ export async function runChiefOfStaff({
   const transcript = {
     startedAt: new Date().toISOString(),
     headlineModel: model ?? null,
+    seed: Number.isFinite(seed) ? seed : null,
     policy,
     modelOverride,
+    input: {
+      schedule: {
+        sourceType: scheduleMeta.sourceType,
+        eventCount: scheduleMeta.eventCount,
+        warnings: scheduleMeta.warnings,
+      },
+      feedback: feedbackInput,
+    },
     nodes: {},
   };
 
@@ -739,6 +776,9 @@ export async function runChiefOfStaff({
     fallback_reason: null,
     parse_retry: false,
     lessons_loaded: lessons.length,
+    schedule_source: scheduleMeta.sourceType,
+    schedule_event_count: scheduleMeta.eventCount,
+    feedback_attached: feedbackInput != null,
   });
 
   // Smart warmup: skip when override is set, when allow-cloud=always, when the
@@ -762,7 +802,10 @@ export async function runChiefOfStaff({
           modelOverride,
           goalsRaw,
           scheduleRaw,
+          scheduleMeta,
+          feedbackPrompt,
           timeoutMs,
+          seed,
           onEvent,
           runDir,
           transcript,
@@ -773,6 +816,7 @@ export async function runChiefOfStaff({
   }
 
   transcript.cloudBudget = { maxCloudTokens: cloudBudget.maxCloudTokens, used: cloudBudget.used };
+  transcript.qualityScorecard = buildChiefOfStaffQualityScorecard(transcript);
 
   await flushTelemetry();
   const brief = buildBrief({ model: model ?? "(cascade)", transcript });
@@ -790,4 +834,31 @@ export async function runChiefOfStaff({
 
   onEvent({ type: "complete", brief, transcript });
   return { transcript, brief };
+}
+
+function normalizeFeedback(feedback) {
+  if (feedback == null) return null;
+  if (typeof feedback === "string") {
+    const text = feedback.trim();
+    return text ? { notes: text } : null;
+  }
+  if (typeof feedback !== "object") return null;
+  const out = {};
+  for (const [key, value] of Object.entries(feedback)) {
+    if (typeof value === "string" && value.trim()) out[key] = value.trim();
+    else if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
+    else if (typeof value === "boolean") out[key] = value;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function formatFeedbackPrompt(feedback, skillFeedback) {
+  if (!feedback) return "";
+  return [
+    "Weekly feedback from the user. Apply this only when it improves the next plan; do not treat subjective notes as verified facts.",
+    "",
+    `Feedback-loop skill:\n${skillFeedback.trim()}`,
+    "",
+    `Feedback payload:\n${JSON.stringify(feedback, null, 2)}`,
+  ].join("\n");
 }

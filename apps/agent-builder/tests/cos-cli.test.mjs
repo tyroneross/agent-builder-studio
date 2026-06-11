@@ -29,6 +29,8 @@ test("--help prints flag banner and exits 0", () => {
   assert.match(res.stdout, /--allow-cloud/);
   assert.match(res.stdout, /--summary/);
   assert.match(res.stdout, /--json/);
+  assert.match(res.stdout, /--feedback/);
+  assert.match(res.stdout, /--seed-count/);
   assert.match(res.stdout, /ENVIRONMENT/);
   assert.match(res.stdout, /GROQ_API_KEY/);
   assert.match(res.stdout, /ANTHROPIC_API_KEY/);

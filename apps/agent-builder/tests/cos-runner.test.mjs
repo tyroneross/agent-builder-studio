@@ -818,6 +818,107 @@ test("runChiefOfStaff: each role sees only its own scoped brief", async () => {
   }
 });
 
+test("runChiefOfStaff: normalizes ICS input, injects feedback, passes seed, and emits quality scorecard", async () => {
+  const mod = await import("../lib/cos-runner.mjs");
+
+  const seen = {};
+  const seeds = [];
+  setChatImpl(async (opts) => {
+    seeds.push(opts.seed);
+    if (opts.messages?.[0]?.content?.includes('Return {"ok":true}')) {
+      return { ok: true, text: '{"ok":true}', parsed: { ok: true }, raw: null, provider: opts.provider, model: opts.model };
+    }
+    const sys = Array.isArray(opts.system) ? opts.system.map((b) => b.text).join("|") : (opts.system ?? "");
+    const userMsg = opts.messages[0].content;
+    let key = "?";
+    if (userMsg.includes("schedule-intake skill")) key = "intake";
+    else if (userMsg.includes("Priority Strategist")) key = "triage";
+    else if (userMsg.includes("Calendar Architect")) key = "time_block_plan";
+    else if (userMsg.includes("decision log")) key = "decision_log";
+    else if (userMsg.includes("Follow-up Operator")) key = "follow_up_plan";
+    else if (userMsg.includes("Honesty Auditor")) key = "operating_risks";
+    seen[key] = sys;
+
+    const parsedByKey = {
+      intake: {
+        weekOf: "2026-06-15",
+        fixedEvents: [],
+        flexibleEvents: [],
+        baseline: { deepWorkHours: 2, adminHours: 3, contextSwitches: 6, openLoopRisk: "medium" },
+        notes: [],
+      },
+      triage: {
+        topThree: [
+          { outcome: "Ship migration review", owner: "Ty", leverageRationale: "Highest leverage", dueBy: "Friday" },
+          { outcome: "Resolve partner ask", owner: "Sam", leverageRationale: "Blocks revenue", dueBy: "Wednesday" },
+          { outcome: "Prepare board metric", owner: "Dana", leverageRationale: "Avoids late churn", dueBy: "Thursday" },
+        ],
+        rejected: [],
+        notes: [],
+      },
+      time_block_plan: {
+        blocks: [
+          { day: "Monday", start: "09:00", end: "10:00", mode: "Deep work", why: "Protect focus" },
+          { day: "Tuesday", start: "09:00", end: "10:00", mode: "Partner work", why: "Unblock ask" },
+          { day: "Wednesday", start: "09:00", end: "10:00", mode: "Board metric", why: "Reduce churn" },
+          { day: "Thursday", start: "09:00", end: "10:00", mode: "Review", why: "Close loop" },
+          { day: "Friday", start: "09:00", end: "10:00", mode: "Learning review", why: "Promote lesson" },
+        ],
+        protectedHours: 5,
+        contextSwitches: 4,
+        tradeoffs: [],
+      },
+      decision_log: {
+        decisions: [
+          { title: "Migration scope", options: ["small", "full"], recommendation: "small", status: "needs approval", owner: "Ty" },
+        ],
+      },
+      follow_up_plan: {
+        items: [{ owner: "Sam", action: "Confirm partner ask", dueBy: "Wednesday", channel: "Slack" }],
+        missingOwners: [],
+      },
+      operating_risks: {
+        risks: [{ risk: "Context switching", severity: "medium", mitigation: "Batch admin" }],
+        unverifiedClaims: [],
+      },
+    };
+    const parsed = parsedByKey[key] ?? parsedByKey.intake;
+    return { ok: true, text: JSON.stringify(parsed), parsed, raw: null, provider: opts.provider, model: opts.model };
+  });
+
+  const dir = await mkdtemp(join(tmpdir(), "cos-ics-feedback-"));
+  try {
+    const { transcript } = await mod.runChiefOfStaff({
+      schedule: `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:fixture
+DTSTART:20260615T090000
+DTEND:20260615T100000
+SUMMARY:Deep work on migration
+END:VEVENT
+END:VCALENDAR`,
+      goals: "test",
+      feedback: { actualFocus: "4 hours", followThrough: "missed partner follow-up" },
+      seed: 42,
+      allowCloud: "never",
+      modelOverride: { provider: "ollama", model: "qwen3:8b-q4_K_M" },
+      onEvent: () => {},
+      runDir: dir,
+    });
+    assert.equal(transcript.input.schedule.sourceType, "ics");
+    assert.equal(transcript.input.schedule.eventCount, 1);
+    assert.equal(transcript.seed, 42);
+    assert.ok(seeds.some((seed) => seed === 42), "node calls should receive deterministic seed");
+    assert.match(seen.triage, /Weekly feedback/);
+    assert.match(seen.time_block_plan, /missed partner follow-up/);
+    assert.doesNotMatch(seen.intake, /Weekly feedback/);
+    assert.equal(transcript.qualityScorecard.score, transcript.qualityScorecard.maxScore);
+  } finally {
+    setChatImpl(null);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 // ---------- G9: telemetry rows include role field ----------
 
 test("runChiefOfStaff: telemetry rows carry role (or null for intake / _warmup / _run)", async () => {

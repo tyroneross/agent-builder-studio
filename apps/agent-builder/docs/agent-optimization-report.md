@@ -197,7 +197,7 @@ Output summary:
 
 - The full 28-scenario local-model run timed out inside `LocalLLM.generate`.
 - The one-scenario-per-agent local smoke passed, so the failure appears to be model runtime throughput or per-call timeout pressure, not a generated artifact contract failure.
-- Recommended next step: run full local-model validation in chunks by structure or add a resumable local-model test runner.
+- Follow-up implemented: `npm run agent:validate:local -- --chunk-size=<n> --state=<path>` runs local validation in resumable structure chunks and writes a quality scorecard into the saved state file.
 
 ## Findings
 
