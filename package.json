@@ -8,6 +8,9 @@
     "packages/*",
     "apps/*"
   ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "test:packages": "npm run test --workspace @tyroneross/agent-spec --workspace @tyroneross/local-llm",
     "test:agent-builder": "npm test --workspace agent-builder",

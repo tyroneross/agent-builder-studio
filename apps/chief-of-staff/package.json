@@ -15,7 +15,7 @@
     "draft:agent-ui:v0": "node scripts/draft-agent-ui-v0.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   },
   "devDependencies": {
     "v0-sdk": "^0.16.4"
