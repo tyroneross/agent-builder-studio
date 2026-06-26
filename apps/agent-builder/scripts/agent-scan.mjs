@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { AGENT_STRUCTURES } from "../agent-structures/index.js";
-import { buildAgentArtifacts } from "../lib/generator.js";
+import { buildAgentArtifacts } from "@tyroneross/agent-pack";
 import { validateStructureAgainstResearch, validateStructuresAgainstResearch } from "../lib/research-validation.js";
 import { runSandboxSuite } from "../sandbox/runner.js";
 

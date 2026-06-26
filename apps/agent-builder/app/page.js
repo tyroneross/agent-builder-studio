@@ -24,8 +24,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { AGENT_STRUCTURES } from "../agent-structures/index.js";
 import { FLOW_LAYOUT, getFlowStageMeta, layoutFlowSpec } from "../lib/flow-layout.mjs";
-import { buildAgentArtifacts } from "../lib/generator.js";
-import { FRAMEWORKS, PATTERNS, SOURCE_REGISTRY } from "../lib/patterns.js";
+import { buildAgentArtifacts } from "@tyroneross/agent-pack";
+import { FRAMEWORKS, PATTERNS, SOURCE_REGISTRY } from "@tyroneross/agent-pack";
 
 const BUILT_STRUCTURES_STORAGE_KEY = "agent-builder-built-structures-v1";
 

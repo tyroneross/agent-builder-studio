@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent-builder.local-json-doe.v1",
-  "ranAt": "2026-06-09T23:52:50.225Z",
+  "ranAt": "2026-06-26T05:30:17.067Z",
   "mode": "fixture",
   "engine": "scripts/doe/doe.py (multi-goal, numpy-only)",
   "design": {
@@ -310,43 +310,43 @@
       "pass_rate": {
         "ranked_effects": [
           {
-            "term": "schema_in_prompt",
+            "term": "backend",
             "kind": "main",
             "effect": 0.25000000000000006,
             "abs_effect": 0.25000000000000006
           },
           {
-            "term": "backend",
+            "term": "schema_in_prompt",
             "kind": "main",
-            "effect": 0.25,
-            "abs_effect": 0.25
+            "effect": 0.24999999999999997,
+            "abs_effect": 0.24999999999999997
           },
           {
             "term": "strict_suffix",
             "kind": "main",
-            "effect": 0.24999999999999986,
-            "abs_effect": 0.24999999999999986
-          },
-          {
-            "term": "backend × schema_in_prompt",
-            "kind": "interaction",
-            "effect": -5.644483520826474e-17,
-            "abs_effect": 5.644483520826474e-17
+            "effect": 0.24999999999999994,
+            "abs_effect": 0.24999999999999994
           },
           {
             "term": "backend × strict_suffix",
             "kind": "interaction",
-            "effect": 1.4748252329599986e-17,
-            "abs_effect": 1.4748252329599986e-17
+            "effect": 9.94113243352638e-17,
+            "abs_effect": 9.94113243352638e-17
           },
           {
             "term": "schema_in_prompt × strict_suffix",
             "kind": "interaction",
-            "effect": 7.809358425692758e-18,
-            "abs_effect": 7.809358425692758e-18
+            "effect": 9.94113243352638e-17,
+            "abs_effect": 9.94113243352638e-17
+          },
+          {
+            "term": "backend × schema_in_prompt",
+            "kind": "interaction",
+            "effect": 4.390017310400597e-17,
+            "abs_effect": 4.390017310400597e-17
           }
         ],
-        "r2": 0.7499999999999999,
+        "r2": 0.75,
         "intercept": 0.4999999999999999,
         "direction": "higher"
       },

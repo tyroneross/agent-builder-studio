@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
-import { buildAgentArtifacts } from "./generator.js";
+import { buildAgentArtifacts } from "@tyroneross/agent-pack";
 import { GENERATED_AGENTS_DIR } from "./generated-paths.mjs";
 
 export { GENERATED_AGENTS_DIR };

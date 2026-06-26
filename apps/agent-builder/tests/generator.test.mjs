@@ -2,11 +2,11 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAgentArtifacts, slugify } from "../lib/generator.js";
+import { buildAgentArtifacts, slugify } from "@tyroneross/agent-pack";
 import { writeAgentArtifacts } from "../lib/build-files.js";
-import { PATTERNS } from "../lib/patterns.js";
+import { PATTERNS } from "@tyroneross/agent-pack";
 import { findAgentStructure } from "../agent-structures/index.js";
-import { inferSpecProfile, mapToolPermissionTier } from "../lib/spec-profile.js";
+import { inferSpecProfile, mapToolPermissionTier } from "@tyroneross/agent-pack";
 
 async function makeTestRoot(prefix) {
   const base = process.env.AGENT_BUILDER_TMPDIR || join(process.cwd(), ".tmp");

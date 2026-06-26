@@ -1,0 +1,18 @@
+{
+  "name": "@tyroneross/agent-pack",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic agent-spec → installable package engine (pure spec→files). Extracted from the agent-builder workbench so any host (Studio) can produce the full bundle.",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@tyroneross/agent-spec": "*"
+  },
+  "license": "Apache-2.0"
+}

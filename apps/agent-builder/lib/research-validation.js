@@ -3,8 +3,8 @@ import {
   SPEC_PROFILE_DEFINITIONS,
   mapToolPermissionTier,
   profileContractPaths,
-} from "./spec-profile.js";
-import { buildAgentArtifacts } from "./generator.js";
+} from "@tyroneross/agent-pack";
+import { buildAgentArtifacts } from "@tyroneross/agent-pack";
 
 function structureTools(structure) {
   return structure.spec?.tools ?? [];

@@ -30,6 +30,7 @@
     "doe:local-json": "node scripts/doe/run-local-json-doe.mjs"
   },
   "dependencies": {
+    "@tyroneross/agent-pack": "*",
     "@tyroneross/agent-spec": "*",
     "@tyroneross/local-llm": "*",
     "lucide-react": "^1.11.0",

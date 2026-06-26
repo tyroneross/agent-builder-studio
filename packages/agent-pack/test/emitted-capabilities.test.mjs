@@ -2,13 +2,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildAgentArtifacts } from "../lib/generator.js";
+import { buildAgentArtifacts } from "../index.mjs";
 import {
   detectDocIngest,
   detectRiskSurfaces,
   detectDocProducer,
   resolveEmittedCapabilities,
-} from "../lib/emitted-capabilities/index.mjs";
+} from "../index.mjs";
 
 const BASE = {
   projectName: "Test Agent",
