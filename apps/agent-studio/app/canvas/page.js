@@ -71,6 +71,29 @@ const ROLE_COLORS = {
 
 const ROLE_OPTIONS = ["agent", "guardrail", "orchestrator", "executor", "eval", "memory", "subagent"];
 
+// v7 governance — node permission gate + tool side-effects. The derived T0–T5
+// tier shown per tool mirrors agent-pack's mapToolPermissionTier (kept as a tiny
+// local map so the client bundle doesn't pull the server-side packager).
+const PERMISSION_OPTIONS = [
+  "allow-read",
+  "ask-first",
+  "deny-by-default",
+  "approval-required",
+  "allow-write",
+];
+const SIDE_EFFECT_OPTIONS = ["none", "read", "network", "write", "shell", "destructive"];
+const SIDE_EFFECT_TIER = {
+  none: "T0",
+  read: "T1",
+  network: "T2",
+  write: "T3",
+  shell: "T4",
+  destructive: "T5",
+};
+function permissionTier(sideEffect) {
+  return SIDE_EFFECT_TIER[sideEffect] ?? "T5"; // unknown → highest (fail-safe, matches the engine)
+}
+
 function edgeId(from, to) {
   return `${from}->${to}`;
 }
@@ -2168,6 +2191,12 @@ export default function StudioCanvas() {
                   />
                 </label>
 
+                <NodeGovernance
+                  node={selectedNode}
+                  locked={locked}
+                  onField={(field, value) => updateNodeField(selectedNode.id, field, value)}
+                />
+
                 <RolePromptSection
                   role={selectedNode.role}
                   overrides={activeProject.rolePromptOverrides ?? {}}
@@ -2632,6 +2661,37 @@ export default function StudioCanvas() {
           text-transform: uppercase;
           color: var(--muted);
         }
+        .panel-hint {
+          font-size: 12px;
+          color: var(--muted);
+          margin: 2px 0 6px;
+        }
+        .panel-mini-btn {
+          font-size: 11px;
+          padding: 2px 8px;
+          color: var(--ink);
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          cursor: pointer;
+        }
+        .panel-mini-btn:hover {
+          border-color: var(--border-strong);
+        }
+        .panel-mini-btn:disabled {
+          opacity: 0.5;
+          cursor: default;
+        }
+        .tier-chip {
+          font-size: 11px;
+          font-weight: 600;
+          padding: 2px 6px;
+          color: var(--muted);
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          white-space: nowrap;
+        }
         .panel-input {
           width: 100%;
           padding: 8px 10px;
@@ -2822,6 +2882,102 @@ export default function StudioCanvas() {
 // Reads `overrides[role]` if present (via parent), else pre-fills with the
 // hardcoded default. Editing autosaves through `onChange` (parent debounces).
 // Reset removes the override so the runtime falls back to the default.
+// v7 governance editor — per-node permission gate + tools[]. Writes through
+// onField(field, value) so the data layer's normalizers keep the shape valid.
+// Authored values flow to the canonical spec and the full agent-pack package.
+function NodeGovernance({ node, locked, onField }) {
+  const tools = Array.isArray(node.tools) ? node.tools : [];
+
+  const setTool = (i, key, value) =>
+    onField("tools", tools.map((t, idx) => (idx === i ? { ...t, [key]: value } : t)));
+  const addTool = () =>
+    onField("tools", [
+      ...tools,
+      { name: "", responsibility: "", sideEffect: "read", permission: "allow-read" },
+    ]);
+  const removeTool = (i) => onField("tools", tools.filter((_, idx) => idx !== i));
+
+  return (
+    <div className="panel-field" data-node-governance>
+      <label className="panel-field">
+        <span className="panel-label">Permission</span>
+        <select
+          className="panel-input panel-select"
+          value={node.permission ?? "ask-first"}
+          disabled={locked}
+          onChange={(e) => onField("permission", e.target.value)}
+        >
+          {PERMISSION_OPTIONS.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <span className="panel-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        Tools
+        <button type="button" className="panel-mini-btn" disabled={locked} onClick={addTool}>
+          + add tool
+        </button>
+      </span>
+
+      {tools.length === 0 && (
+        <p className="panel-hint">No tools. This node reasons/acts without a bound tool.</p>
+      )}
+
+      {tools.map((t, i) => (
+        <div key={i} className="panel-tool-row" style={{ display: "grid", gap: 4, marginBottom: 8 }}>
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            <input
+              className="panel-input"
+              style={{ flex: 1 }}
+              value={t.name ?? ""}
+              placeholder="tool name (e.g. read_context)"
+              disabled={locked}
+              onChange={(e) => setTool(i, "name", e.target.value)}
+            />
+            <span className="tier-chip" title={`permission tier from side-effect "${t.sideEffect}"`}>
+              {permissionTier(t.sideEffect)}
+            </span>
+            <button type="button" className="panel-mini-btn" disabled={locked} onClick={() => removeTool(i)}>
+              ✕
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 4 }}>
+            <select
+              className="panel-input panel-select"
+              style={{ flex: 1 }}
+              value={t.sideEffect ?? "read"}
+              disabled={locked}
+              onChange={(e) => setTool(i, "sideEffect", e.target.value)}
+            >
+              {SIDE_EFFECT_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  side-effect: {s}
+                </option>
+              ))}
+            </select>
+            <select
+              className="panel-input panel-select"
+              style={{ flex: 1 }}
+              value={t.permission ?? "allow-read"}
+              disabled={locked}
+              onChange={(e) => setTool(i, "permission", e.target.value)}
+            >
+              {PERMISSION_OPTIONS.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function RolePromptSection({ role, overrides, draftValue, expanded, onToggle, onChange, onReset }) {
   const persisted = overrides && typeof overrides[role] === "string" ? overrides[role] : null;
   const hasOverride = persisted != null && persisted.trim().length > 0;
