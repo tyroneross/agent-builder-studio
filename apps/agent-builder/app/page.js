@@ -413,7 +413,7 @@ export default function Home() {
             <ListChecks size={16} />
             Review Investment
           </a>
-          <a className="ghost-button" href="/meetings">
+          <a className="ghost-button" href="http://localhost:3032">
             <FileText size={16} />
             Ingest Files
           </a>

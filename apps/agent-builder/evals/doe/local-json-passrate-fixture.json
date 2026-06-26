@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent-builder.local-json-doe.v1",
-  "ranAt": "2026-06-26T06:18:37.861Z",
+  "ranAt": "2026-06-26T07:38:06.360Z",
   "mode": "fixture",
   "engine": "scripts/doe/doe.py (multi-goal, numpy-only)",
   "design": {

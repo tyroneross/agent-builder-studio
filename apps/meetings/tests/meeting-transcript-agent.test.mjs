@@ -4,7 +4,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { AGENT_STRUCTURES } from "../agent-structures/index.js";
 import {
   analyzeMeetingUploads,
   buildMeetingInstallBundle,
@@ -23,16 +22,6 @@ function upload(name, text, type = "text/plain") {
     arrayBuffer: async () => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
   };
 }
-
-test("local knowledge agent structure is available in Agent Builder", () => {
-  const structure = AGENT_STRUCTURES.find((item) => item.id === "local-knowledge-agent");
-  assert.ok(structure);
-  assert.equal(structure.spec.modelProvider, "ollama");
-  assert.ok(structure.spec.sources.includes("omniparse-local-sdk"));
-  assert.ok(structure.spec.outputs.includes("rich_text_output"));
-  assert.ok(structure.spec.outputs.includes("local_database"));
-  assert.ok(structure.spec.outputs.includes("knowledge_graph"));
-});
 
 test("RTF extraction strips control words in internal fallback mode", async () => {
   const extracted = await extractTextFromUpload(

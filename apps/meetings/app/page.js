@@ -17,7 +17,7 @@ import {
   Settings2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CHAT_MODELS, EMBEDDING_MODELS, MAC_RAM_PROFILES, profileByRam } from "../../lib/meeting-model-profiles.mjs";
+import { CHAT_MODELS, EMBEDDING_MODELS, MAC_RAM_PROFILES, profileByRam } from "../lib/meeting-model-profiles.mjs";
 
 const DEFAULT_PROFILE = profileByRam("24gb");
 const DEFAULTS = {
