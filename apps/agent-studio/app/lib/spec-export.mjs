@@ -191,6 +191,9 @@ function projectToSpec(project) {
     modelProvider: SPEC_DEFAULTS.modelProvider,
     sandbox: SPEC_DEFAULTS.sandbox,
     autonomy: SPEC_DEFAULTS.autonomy,
+    // v7 — authored project validation profile scales the packager's required
+    // contracts (skill < personal < team < enterprise). Defaults to personal.
+    validationProfile: project.validationProfile || "personal",
     nodes,
     edges,
     inputs,

@@ -16,6 +16,7 @@
     "test:models-filter": "node scripts/test-models-filter.mjs"
   },
   "dependencies": {
+    "@tyroneross/agent-artifacts": "*",
     "@tyroneross/agent-pack": "*",
     "@tyroneross/agent-spec": "*",
     "@tyroneross/local-llm": "*",
