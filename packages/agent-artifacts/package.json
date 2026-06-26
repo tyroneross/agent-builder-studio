@@ -1,0 +1,15 @@
+{
+  "name": "@tyroneross/agent-artifacts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local artifact staging + promotion. Generated output (packages, skills, plugins, agents) lands git-ignored in .artifacts/, tracked in a registry, and is promoted to a standalone live folder outside the app on demand.",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "Apache-2.0"
+}

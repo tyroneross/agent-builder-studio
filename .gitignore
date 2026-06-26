@@ -8,3 +8,8 @@ node_modules/
 .claude/
 *.log
 __pycache__/
+
+# Local artifact staging — generated output (packages/skills/plugins/agents)
+# lives here, tracked in .artifacts/registry.json, until promoted to a standalone
+# live folder. Working output, never committed.
+.artifacts/
