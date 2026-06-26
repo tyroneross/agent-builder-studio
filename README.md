@@ -1,14 +1,25 @@
-# agent-builder-platform
+# agent-builder-studio
 
-Monorepo consolidating the agent **design → run → package** lifecycle into one
-workspace with two shared packages. Local-first by default everywhere.
+One app for the agent **design → run → package** lifecycle: a visual canvas
+(Studio) that authors a governed spec and runs it live, backed by a deterministic
+packaging engine (Builder). Local-first by default everywhere.
+
+**Architecture principle (from build-loop-memory's AI-first data architecture):**
+the **agent spec is the single source of truth**; the canvas layout, run
+transcripts, and the generated package are all **derived, rebuildable
+projections**. Never make a derived layer the source of truth.
+
+> **In-progress merge:** `agent-builder` and `agent-studio` are being collapsed
+> into a single `apps/studio` app, with Builder's generation engine extracted to
+> `packages/agent-pack`. Phased, with compile+test gates between phases. The
+> table below reflects the current (mid-merge) state.
 
 | Path | Role |
 |---|---|
-| `apps/agent-builder` | Workbench: design, evaluate, package agent graphs (Next.js, :3028) |
-| `apps/agent-studio` | Runtime canvas: run/test agent graphs live with SSE (Next.js, :3030) |
-| `apps/chief-of-staff` | Standalone shipped product (Node HTTP server, :3031) |
-| `packages/agent-spec` | Shared spec contract: schema, validate, unified role enum, YAML, defaults |
+| `apps/agent-builder` | Workbench: design, evaluate, package agent graphs (Next.js, :3028) — being folded into Studio |
+| `apps/agent-studio` | Runtime canvas: run/test agent graphs live with SSE (Next.js, :3030) — the host UI |
+| `apps/chief-of-staff` | Standalone shipped product (Node HTTP server, :3031) — stays separate |
+| `packages/agent-spec` | Shared spec contract (single source of truth): schema, validate, unified role enum, YAML, defaults |
 | `packages/local-llm` | Shared local-first LLM client: MLX-first, Ollama fallback, key-gated cloud |
 
 ## One install builds + tests everything

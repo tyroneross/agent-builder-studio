@@ -1,8 +1,8 @@
 {
-  "name": "agent-builder-platform",
+  "name": "agent-builder-studio",
   "version": "0.1.0",
   "private": true,
-  "description": "Monorepo: agent design -> run -> package lifecycle. Local-first by default.",
+  "description": "Agent Builder Studio: one app to design, run, and package local-first agent graphs. Spec is the single source of truth; canvas + package output are rebuildable projections.",
   "type": "module",
   "workspaces": [
     "packages/*",
