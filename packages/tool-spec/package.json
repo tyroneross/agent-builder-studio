@@ -1,0 +1,21 @@
+{
+  "name": "@tyroneross/tool-spec",
+  "version": "0.1.0",
+  "description": "The agent-tool.json manifest contract: schema-version canon, validation, and loading for tools registered with the agent-builder-studio.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "src/"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "license": "Apache-2.0"
+}

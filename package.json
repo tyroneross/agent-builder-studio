@@ -25,7 +25,7 @@
     "build:studio": "npm run build --workspace agent-studio",
     "build:builder-signpost": "npm run build --workspace agent-builder",
     "build:chief-of-staff": "npm run build --workspace chief-of-staff",
-    "test:packages": "npm run test --workspace @tyroneross/agent-spec --workspace @tyroneross/agent-pack --workspace @tyroneross/agent-artifacts --workspace @tyroneross/local-llm",
+    "test:packages": "npm run test --workspace @tyroneross/agent-spec --workspace @tyroneross/agent-pack --workspace @tyroneross/agent-artifacts --workspace @tyroneross/local-llm --workspace @tyroneross/tool-spec",
     "test:agent-builder": "npm test --workspace agent-builder",
     "test:meetings": "npm test --workspace meetings",
     "test:investments": "npm test --workspace investments",

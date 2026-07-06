@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "agent-builder.tool.v1",
+  "id": "external-cli-tool",
+  "name": "External CLI Tool",
+  "description": "A tool that lives outside the monorepo, referenced by absolute path.",
+  "type": "cli",
+  "entry": {
+    "kind": "cli",
+    "path": "/opt/external-tools/cli-tool",
+    "devCommand": "node /opt/external-tools/cli-tool/bin/run.js"
+  },
+  "capabilities": ["external-invoke"],
+  "inputs": [],
+  "outputs": [],
+  "compat": {
+    "node": ">=22.13",
+    "studio": "agent-builder.tool.v1"
+  }
+}

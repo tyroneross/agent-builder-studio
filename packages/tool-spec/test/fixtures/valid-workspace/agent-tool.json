@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "agent-builder.tool.v1",
+  "id": "meetings",
+  "name": "Meetings Analyzer",
+  "description": "Analyze meeting transcripts.",
+  "type": "workflow-app",
+  "entry": {
+    "kind": "next-app",
+    "workspace": "apps/meetings",
+    "devCommand": "npm run dev --workspace meetings",
+    "port": 3032,
+    "healthPath": "/"
+  },
+  "capabilities": ["transcript-ingest", "summary-report"],
+  "inputs": [{ "id": "transcript", "type": "file", "required": true }],
+  "outputs": [{ "id": "report", "type": "markdown" }],
+  "env": {
+    "required": [{ "name": "OMNIPARSE_SDK_PATH", "description": "Path to Omniparse SDK entry" }],
+    "optional": [{ "name": "OLLAMA_BASE_URL", "default": "http://localhost:11434" }]
+  },
+  "permissions": {
+    "mode": "disclosure",
+    "filesystem": ["read: transcript store"],
+    "network": ["http://localhost:11434"]
+  },
+  "compat": {
+    "node": ">=22.13",
+    "studio": "agent-builder.tool.v1"
+  }
+}
