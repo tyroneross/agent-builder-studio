@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "agent-builder.tool.v1",
+  "id": "meetings",
+  "name": "Meetings Analyzer",
+  "description": "Meeting transcript analyzer — local upload → extract → chunk → SQLite + knowledge graph → search. Summarizes transcripts via a local Ollama model, embeds chunks for semantic recall, and exports an installable agent bundle.",
+  "type": "workflow-app",
+  "entry": {
+    "kind": "next-app",
+    "workspace": "apps/meetings",
+    "devCommand": "npm run dev --workspace meetings",
+    "port": 3032,
+    "healthPath": "/"
+  },
+  "capabilities": ["transcript-ingest", "summary-report", "semantic-search", "bundle-export"],
+  "inputs": [
+    { "id": "transcript", "type": "file", "required": true },
+    { "id": "query", "type": "string", "required": false }
+  ],
+  "outputs": [
+    { "id": "report", "type": "markdown" },
+    { "id": "search-results", "type": "json" },
+    { "id": "install-bundle", "type": "json" }
+  ],
+  "env": {
+    "required": [
+      { "name": "OMNIPARSE_SDK_PATH", "description": "Absolute path to the local Omniparse SDK entry file (index.mjs), used to parse rich document types before summarization. If unset, the app falls back to internal text/RTF/PDF-best-effort extraction and warns." }
+    ],
+    "optional": [
+      { "name": "OLLAMA_BASE_URL", "default": "http://localhost:11434", "description": "Base URL for a local Ollama server used for chat summarization and embeddings." },
+      { "name": "MEETING_SUMMARY_MODEL", "default": "qwen3:14b", "description": "Chat model used to summarize meeting transcripts via Ollama." },
+      { "name": "MEETING_EMBED_MODEL", "default": "nomic-embed-text", "description": "Embedding model used for vector retrieval via Ollama." },
+      { "name": "MEETING_VECTOR_STORE_PATH", "default": "agent-outputs/local-knowledge-agent/store", "description": "Path to the JSON vector/knowledge store file or directory." },
+      { "name": "MEETING_LOCAL_DB_PATH", "default": "agent-outputs/local-knowledge-agent/store/knowledge.db", "description": "Path to the local SQLite knowledge database file." }
+    ]
+  },
+  "permissions": {
+    "mode": "disclosure",
+    "filesystem": [
+      "read: OMNIPARSE_SDK_PATH entry file",
+      "read/write: MEETING_VECTOR_STORE_PATH (vector/knowledge store)",
+      "read/write: MEETING_LOCAL_DB_PATH (SQLite knowledge db)",
+      "read/write: agent-outputs/local-knowledge-agent/store (defaults)"
+    ],
+    "network": ["http://localhost:11434 (Ollama: chat summarization + embeddings)"]
+  },
+  "compat": {
+    "node": ">=22.13",
+    "studio": "agent-builder.tool.v1"
+  }
+}
