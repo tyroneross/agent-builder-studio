@@ -11,8 +11,7 @@ import {
   searchMeetingMemory,
 } from "../lib/meeting-transcript-agent.mjs";
 
-const OMNIPARSE_ENTRY = process.env.OMNIPARSE_ENTRY
-  ?? "/Users/tyroneross/dev/git-folder/Omniparse/packages/sdk/dist/index.mjs";
+const OMNIPARSE_ENTRY = process.env.OMNIPARSE_SDK_PATH;
 
 function upload(name, text, type = "text/plain") {
   const buffer = Buffer.from(text, "utf8");
@@ -89,13 +88,40 @@ test("single-file install bundle includes local database and model profiles", ()
   assert.ok(bundle.retrieval.modes.includes("semantic"));
 });
 
-test("Omniparse parses supported documents when the local SDK is present", { skip: !existsSync(OMNIPARSE_ENTRY) }, async () => {
-  const extracted = await extractTextFromUpload(
-    upload("actions.csv", "Owner,Task\nAlice,Send notes\nBob,Review plan\n", "text/csv"),
-    { parserMode: "auto", omniparseEntry: OMNIPARSE_ENTRY },
-  );
+test(
+  "Omniparse parses supported documents when the local SDK is present",
+  { skip: !OMNIPARSE_ENTRY || !existsSync(OMNIPARSE_ENTRY) },
+  async () => {
+    const extracted = await extractTextFromUpload(
+      upload("actions.csv", "Owner,Task\nAlice,Send notes\nBob,Review plan\n", "text/csv"),
+      { parserMode: "auto", omniparseEntry: OMNIPARSE_ENTRY },
+    );
 
-  assert.match(extracted.extraction, /^omniparse:/);
-  assert.match(extracted.text, /Alice/);
-  assert.match(extracted.text, /Review plan/);
+    assert.match(extracted.extraction, /^omniparse:/);
+    assert.match(extracted.text, /Alice/);
+    assert.match(extracted.text, /Review plan/);
+  },
+);
+
+test("Omniparse-eligible upload reports an actionable error when OMNIPARSE_SDK_PATH is unset", async () => {
+  const previous = process.env.OMNIPARSE_SDK_PATH;
+  delete process.env.OMNIPARSE_SDK_PATH;
+  try {
+    const extracted = await extractTextFromUpload(
+      upload("actions.csv", "Owner,Task\nAlice,Send notes\nBob,Review plan\n", "text/csv"),
+      { parserMode: "auto", omniparseEntry: undefined },
+    );
+
+    // No SDK entry was supplied, so extraction must fall back gracefully rather
+    // than silently defaulting to a personal absolute path — and the warning
+    // must name the env var so the operator knows how to fix it.
+    assert.ok(
+      extracted.warnings.some((warning) => warning.includes("OMNIPARSE_SDK_PATH")),
+      `expected a warning naming OMNIPARSE_SDK_PATH, got: ${JSON.stringify(extracted.warnings)}`,
+    );
+    assert.doesNotMatch(extracted.warnings.join("\n"), /\/Users\//);
+  } finally {
+    if (previous === undefined) delete process.env.OMNIPARSE_SDK_PATH;
+    else process.env.OMNIPARSE_SDK_PATH = previous;
+  }
 });

@@ -27,7 +27,6 @@ const DEFAULT_DB_FILE = "knowledge.db";
 const DEFAULT_OLLAMA_BASE = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
 const DEFAULT_CHAT_MODEL = process.env.MEETING_SUMMARY_MODEL ?? "qwen3:14b";
 const DEFAULT_EMBEDDING_MODEL = process.env.MEETING_EMBED_MODEL ?? "nomic-embed-text";
-const DEFAULT_OMNIPARSE_ENTRY = process.env.OMNIPARSE_SDK_PATH ?? "/Users/tyroneross/dev/git-folder/Omniparse/packages/sdk/dist/index.mjs";
 const HASH_DIMENSIONS = 384;
 const MAX_CHUNKS_PER_EMBED_BATCH = 16;
 const MAX_OLLAMA_EMBED_CHARS = 6000;
@@ -278,7 +277,7 @@ export function buildMeetingInstallBundle(options = {}) {
     parser: {
       preferred: "Omniparse local SDK",
       fallback: "internal text, RTF, PDF-best-effort, and printable-text extraction",
-      omniparsePath: DEFAULT_OMNIPARSE_ENTRY,
+      omniparsePath: process.env.OMNIPARSE_SDK_PATH ?? null,
     },
     defaultControls: {
       chatModel: profile.chatModel,
@@ -561,11 +560,17 @@ async function parseWithOmniparse({ name, buffer, extension, options }) {
   if (options.parserMode === "internal") return null;
   if (!OMNIPARSE_EXTENSIONS.has(extension)) return null;
 
-  const entry = options.omniparseEntry ?? DEFAULT_OMNIPARSE_ENTRY;
-  if (!entry || !existsSync(entry)) {
+  const entry = options.omniparseEntry ?? process.env.OMNIPARSE_SDK_PATH;
+  if (!entry) {
     return {
       text: "",
-      warnings: [`${name}: Omniparse SDK was not found at ${entry}; used internal parser fallback.`],
+      warnings: [`${name}: OMNIPARSE_SDK_PATH is not set — point it at your Omniparse SDK entry (index.mjs). See apps/meetings/.env.example. Used internal parser fallback for this file.`],
+    };
+  }
+  if (!existsSync(entry)) {
+    return {
+      text: "",
+      warnings: [`${name}: Omniparse SDK was not found at ${entry} (from OMNIPARSE_SDK_PATH); used internal parser fallback.`],
     };
   }
 
