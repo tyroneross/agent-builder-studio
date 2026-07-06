@@ -6,6 +6,7 @@ node_modules/
 .navgator/
 .bookmark/
 .claude/
+.ibr/
 *.log
 __pycache__/
 
