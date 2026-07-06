@@ -7,6 +7,9 @@ node_modules/
 .bookmark/
 .claude/
 .ibr/
+# Studio-local tool-registry state (workspace discovery + external
+# registrations); regenerated on demand, never committed.
+.agent-studio/
 *.log
 __pycache__/
 
