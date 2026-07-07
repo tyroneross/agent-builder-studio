@@ -20,6 +20,9 @@ const REGISTRY_DIR_NAME = ".agent-studio";
 const REGISTRY_FILE_NAME = "tool-registry.json";
 const MANIFEST_FILENAME = "agent-tool.json";
 const PROBE_TIMEOUT_MS = 300;
+const SHELL_METACHAR_PATTERN = /[;|&$`<>(){}]/;
+
+let registryMutationLock = Promise.resolve();
 
 /**
  * Find the repo root: the nearest ancestor of `startDir` whose package.json
@@ -47,6 +50,12 @@ export function findRepoRoot(startDir = process.cwd()) {
 
 function toolRegistryPath(repoRoot) {
   return path.join(repoRoot, REGISTRY_DIR_NAME, REGISTRY_FILE_NAME);
+}
+
+function withRegistryMutationLock(fn) {
+  const next = registryMutationLock.then(fn, fn);
+  registryMutationLock = next.catch(() => {});
+  return next;
 }
 
 function emptyRegistryState() {
@@ -105,12 +114,31 @@ function isLivePid(pid) {
   }
 }
 
-async function resolveTool(repoRoot, id) {
-  const [workspaceTools, registeredTools] = await Promise.all([
-    discoverWorkspaceTools(repoRoot),
-    readRegisteredTools(repoRoot),
-  ]);
-  return [...workspaceTools, ...registeredTools].find((tool) => tool.id === id) ?? null;
+function isTrackedRuntimeLive(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  if (!Number.isInteger(entry.pid) || entry.pid <= 0) return false;
+  if (typeof entry.startedAt !== "string") return false;
+  if (!Array.isArray(entry.argv) || entry.argv.length === 0) return false;
+  return isLivePid(entry.pid);
+}
+
+function parseDevCommand(devCommand) {
+  if (typeof devCommand !== "string" || devCommand.trim().length === 0) {
+    return { ok: false, error: "tool devCommand is missing" };
+  }
+  if (SHELL_METACHAR_PATTERN.test(devCommand)) {
+    return {
+      ok: false,
+      error: "tool devCommand contains unsupported shell metacharacters",
+    };
+  }
+
+  const argv = devCommand.trim().split(/\s+/);
+  const [command, ...args] = argv;
+  if (!command) {
+    return { ok: false, error: "tool devCommand is missing" };
+  }
+  return { ok: true, command, args, argv };
 }
 
 /**
@@ -156,10 +184,12 @@ export async function readRegisteredTools(repoRoot) {
 
 /** Persist the list of externally-registered tools (creates the dir if missing). */
 export async function writeRegisteredTools(repoRoot, list) {
-  const state = await readRegistryState(repoRoot);
-  await writeRegistryState(repoRoot, {
-    ...state,
-    registered: Array.isArray(list) ? list : [],
+  return withRegistryMutationLock(async () => {
+    const state = await readRegistryState(repoRoot);
+    await writeRegistryState(repoRoot, {
+      ...state,
+      registered: Array.isArray(list) ? list : [],
+    });
   });
 }
 
@@ -185,20 +215,35 @@ export async function registerToolPath(repoRoot, absPath) {
     path: absPath,
   };
 
-  const list = await readRegisteredTools(repoRoot);
-  const deduped = list.filter((t) => t.id !== manifest.id);
-  deduped.push(tool);
-  await writeRegisteredTools(repoRoot, deduped);
+  await withRegistryMutationLock(async () => {
+    const state = await readRegistryState(repoRoot);
+    const deduped = state.registered.filter((t) => t.id !== manifest.id);
+    deduped.push(tool);
+    await writeRegistryState(repoRoot, {
+      ...state,
+      registered: deduped,
+    });
+  });
 
   return { ok: true, tool };
 }
 
 /** Remove a registered external tool by id and persist. */
 export async function unregisterTool(repoRoot, id) {
-  const list = await readRegisteredTools(repoRoot);
-  const next = list.filter((t) => t.id !== id);
-  await writeRegisteredTools(repoRoot, next);
-  return { ok: true };
+  return withRegistryMutationLock(async () => {
+    const state = await readRegistryState(repoRoot);
+    const runtime = { ...(state.runtime ?? {}) };
+    stopRuntimeEntry(runtime[id]);
+    delete runtime[id];
+
+    const next = state.registered.filter((t) => t.id !== id);
+    await writeRegistryState(repoRoot, {
+      ...state,
+      registered: next,
+      runtime,
+    });
+    return { ok: true };
+  });
 }
 
 /**
@@ -207,72 +252,85 @@ export async function unregisterTool(repoRoot, id) {
  * .agent-studio/tool-registry.json file.
  */
 export async function launchTool(repoRoot, id) {
-  const state = await readRegistryState(repoRoot);
-  const existingPid = state.runtime?.[id]?.pid;
-  if (isLivePid(existingPid)) {
-    return { ok: true, alreadyRunning: true, pid: existingPid };
-  }
+  return withRegistryMutationLock(async () => {
+    const state = await readRegistryState(repoRoot);
+    const existingRuntime = state.runtime?.[id];
+    if (isTrackedRuntimeLive(existingRuntime)) {
+      return { ok: true, alreadyRunning: true, pid: existingRuntime.pid };
+    }
 
-  const tool = await resolveTool(repoRoot, id);
-  if (!tool) {
-    return { ok: false, error: "tool not found" };
-  }
-  if (!tool.valid) {
-    return { ok: false, error: "tool manifest is invalid" };
-  }
+    const workspaceTools = await discoverWorkspaceTools(repoRoot);
+    const tool = [...workspaceTools, ...state.registered].find((item) => item.id === id) ?? null;
+    if (!tool) {
+      return { ok: false, error: "tool not found" };
+    }
+    if (!tool.valid) {
+      return { ok: false, error: "tool manifest is invalid" };
+    }
 
-  const devCommand = tool?.manifest?.entry?.devCommand;
-  if (typeof devCommand !== "string" || devCommand.length === 0) {
-    return { ok: false, error: "tool devCommand is missing" };
-  }
+    const parsedCommand = parseDevCommand(tool?.manifest?.entry?.devCommand);
+    if (!parsedCommand.ok) {
+      return { ok: false, error: parsedCommand.error };
+    }
 
-  const child = spawn(devCommand, {
-    cwd: repoRoot,
-    shell: true,
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
+    const child = spawn(parsedCommand.command, parsedCommand.args, {
+      cwd: repoRoot,
+      shell: false,
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
 
-  const pid = child.pid;
-  const nextState = await readRegistryState(repoRoot);
-  await writeRegistryState(repoRoot, {
-    ...nextState,
-    runtime: {
-      ...nextState.runtime,
-      [id]: {
-        pid,
-        port: tool?.manifest?.entry?.port,
-        startedAt: new Date().toISOString(),
+    const pid = child.pid;
+    await writeRegistryState(repoRoot, {
+      ...state,
+      runtime: {
+        ...state.runtime,
+        [id]: {
+          pid,
+          argv: parsedCommand.argv,
+          port: tool?.manifest?.entry?.port,
+          startedAt: new Date().toISOString(),
+        },
       },
-    },
-  });
+    });
 
-  return { ok: true, pid };
+    return { ok: true, pid };
+  });
 }
 
 /** Stop a tracked launched tool and clear its runtime pid state. */
 export async function stopTool(repoRoot, id) {
-  const state = await readRegistryState(repoRoot);
-  const runtime = state.runtime ?? {};
-  const pid = runtime[id]?.pid;
-  if (!pid) {
+  return withRegistryMutationLock(async () => {
+    const state = await readRegistryState(repoRoot);
+    const runtime = { ...(state.runtime ?? {}) };
+    const stopResult = stopRuntimeEntry(runtime[id]);
+    delete runtime[id];
+    await writeRegistryState(repoRoot, {
+      ...state,
+      runtime,
+    });
+    return stopResult;
+  });
+}
+
+function stopRuntimeEntry(entry) {
+  if (!entry?.pid) {
+    return { ok: true, notRunning: true };
+  }
+  if (!isTrackedRuntimeLive(entry)) {
     return { ok: true, notRunning: true };
   }
 
   try {
-    process.kill(pid);
+    process.kill(entry.pid);
+    return { ok: true };
   } catch (err) {
-    if (err?.code !== "ESRCH") throw err;
+    if (err?.code === "ESRCH") {
+      return { ok: true, notRunning: true };
+    }
+    throw err;
   }
-
-  const nextRuntime = { ...runtime };
-  delete nextRuntime[id];
-  await writeRegistryState(repoRoot, {
-    ...state,
-    runtime: nextRuntime,
-  });
-  return { ok: true };
 }
 
 /**
@@ -324,7 +382,7 @@ export async function listAllTools(repoRoot) {
   return Promise.all(
     merged.map(async (tool) => ({
       ...tool,
-      status: isLivePid(runtime[tool.id]?.pid) ? "running" : await probeStatus(tool),
+      status: isTrackedRuntimeLive(runtime[tool.id]) ? "running" : await probeStatus(tool),
     })),
   );
 }

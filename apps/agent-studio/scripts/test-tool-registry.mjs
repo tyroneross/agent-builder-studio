@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { POST as registerRoutePost } from "../app/api/tools/register/route.js";
 import {
   discoverWorkspaceTools,
   readRegisteredTools,
@@ -58,6 +59,19 @@ async function writeWorkspaceManifest(repoRoot, appName, manifest) {
   return dir;
 }
 
+async function writeExternalManifest(repoRoot, dirName, manifest) {
+  const dir = path.join(repoRoot, "external", dirName);
+  await fsp.mkdir(dir, { recursive: true });
+  await fsp.writeFile(path.join(dir, "agent-tool.json"), JSON.stringify(manifest, null, 2), "utf8");
+  return dir;
+}
+
+async function writeLongRunningScript(dir) {
+  const scriptPath = path.join(dir, "run-forever.mjs");
+  await fsp.writeFile(scriptPath, "setTimeout(() => {}, 60000);\n", "utf8");
+  return scriptPath;
+}
+
 function validManifest(id) {
   return {
     schemaVersion: "agent-builder.tool.v1",
@@ -93,6 +107,26 @@ async function waitForPidExit(pid, timeoutMs = 2_000) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   assert.equal(isPidLive(pid), false, `pid ${pid} should have exited`);
+}
+
+function toolRouteRequest(body, headers = {}) {
+  return new Request("http://localhost:3000/api/tools/register", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      host: "localhost:3000",
+      origin: "http://localhost:3000",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+async function readRouteResponse(response) {
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
 }
 
 test("discoverWorkspaceTools finds apps/*/agent-tool.json manifests", async () => {
@@ -192,6 +226,33 @@ test("readRegisteredTools reads legacy bare-array registry files", async () => {
   assert.equal(list[0].id, "legacy-tool");
 });
 
+test("register route rejects paths outside the permitted local roots", async () => {
+  const result = await readRouteResponse(
+    await registerRoutePost(toolRouteRequest({ path: "/etc" })),
+  );
+
+  assert.equal(result.status, 400);
+  assert.equal(result.body.ok, false);
+  assert.equal(result.body.error, "path outside permitted root");
+});
+
+test("register route rejects cross-origin mutating requests", async () => {
+  const result = await readRouteResponse(
+    await registerRoutePost(
+      toolRouteRequest(
+        { path: "/tmp" },
+        {
+          origin: "http://evil.example",
+        },
+      ),
+    ),
+  );
+
+  assert.equal(result.status, 403);
+  assert.equal(result.body.ok, false);
+  assert.equal(result.body.error, "same-origin request required");
+});
+
 test("unregisterTool removes a registered tool and persists the removal", async () => {
   const repoRoot = await makeTempRepoRoot();
   await registerToolPath(repoRoot, VALID_EXTERNAL_FIXTURE);
@@ -233,11 +294,11 @@ test("listAllTools merges workspace + registered tools and annotates status", as
 test("launchTool tracks a live pid, is idempotent, updates status, and stopTool clears runtime", async (t) => {
   const repoRoot = await makeTempRepoRoot();
   const manifest = validManifest("launcher-app");
-  manifest.entry.devCommand = `exec ${JSON.stringify(
-    process.execPath,
-  )} -e "setTimeout(() => {}, 60000)"`;
   manifest.entry.port = 39998;
-  await writeWorkspaceManifest(repoRoot, "launcher-app", manifest);
+  const appDir = await writeWorkspaceManifest(repoRoot, "launcher-app", manifest);
+  const scriptPath = await writeLongRunningScript(appDir);
+  manifest.entry.devCommand = `${process.execPath} ${scriptPath}`;
+  await fsp.writeFile(path.join(appDir, "agent-tool.json"), JSON.stringify(manifest, null, 2), "utf8");
 
   let launchedPid = null;
   t.after(async () => {
@@ -279,4 +340,90 @@ test("launchTool tracks a live pid, is idempotent, updates status, and stopTool 
 
   tools = await listAllTools(repoRoot);
   assert.equal(tools.find((tool) => tool.id === "launcher-app")?.status, "stopped");
+});
+
+test("launchTool rejects devCommand shell metacharacters", async () => {
+  const repoRoot = await makeTempRepoRoot();
+  const manifest = validManifest("shell-bad");
+  manifest.entry.devCommand = `${process.execPath} ./safe.mjs; echo bad`;
+  await writeWorkspaceManifest(repoRoot, "shell-bad", manifest);
+
+  const result = await launchTool(repoRoot, "shell-bad");
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "tool devCommand contains unsupported shell metacharacters");
+});
+
+test("unregisterTool stops a running registered tool and clears runtime", async (t) => {
+  const repoRoot = await makeTempRepoRoot();
+  const manifest = validManifest("external-launcher");
+  const externalDir = await writeExternalManifest(repoRoot, "external-launcher", manifest);
+  const scriptPath = await writeLongRunningScript(externalDir);
+  manifest.entry.devCommand = `${process.execPath} ${scriptPath}`;
+  await fsp.writeFile(
+    path.join(externalDir, "agent-tool.json"),
+    JSON.stringify(manifest, null, 2),
+    "utf8",
+  );
+
+  let launchedPid = null;
+  t.after(async () => {
+    if (launchedPid && isPidLive(launchedPid)) {
+      try {
+        process.kill(launchedPid);
+      } catch {
+        // Best-effort cleanup only.
+      }
+      await waitForPidExit(launchedPid).catch(() => {});
+    }
+  });
+
+  const registered = await registerToolPath(repoRoot, externalDir);
+  assert.equal(registered.ok, true);
+
+  const launch = await launchTool(repoRoot, "external-launcher");
+  assert.equal(launch.ok, true);
+  launchedPid = launch.pid;
+  assert.equal(isPidLive(launch.pid), true);
+
+  const unregistered = await unregisterTool(repoRoot, "external-launcher");
+  assert.equal(unregistered.ok, true);
+  await waitForPidExit(launch.pid);
+
+  const registry = await readRegistryFile(repoRoot);
+  assert.deepEqual(registry.registered, []);
+  assert.equal(registry.runtime["external-launcher"], undefined);
+});
+
+test("stale runtime pids without launch metadata are not treated as running or killed", async () => {
+  const repoRoot = await makeTempRepoRoot();
+  await writeWorkspaceManifest(repoRoot, "stale-pid", validManifest("stale-pid"));
+  await fsp.mkdir(path.join(repoRoot, ".agent-studio"), { recursive: true });
+  await fsp.writeFile(
+    registryFilePath(repoRoot),
+    `${JSON.stringify(
+      {
+        registered: [],
+        runtime: {
+          "stale-pid": {
+            pid: process.pid,
+            startedAt: new Date().toISOString(),
+          },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const tools = await listAllTools(repoRoot);
+  assert.equal(tools.find((tool) => tool.id === "stale-pid")?.status, "stopped");
+
+  const stopped = await stopTool(repoRoot, "stale-pid");
+  assert.equal(stopped.ok, true);
+  assert.equal(stopped.notRunning, true);
+
+  const registry = await readRegistryFile(repoRoot);
+  assert.equal(registry.runtime["stale-pid"], undefined);
+  assert.equal(isPidLive(process.pid), true);
 });
