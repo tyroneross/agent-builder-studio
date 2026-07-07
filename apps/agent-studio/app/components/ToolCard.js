@@ -159,11 +159,16 @@ export default function ToolCard({ tool, onUnregistered }) {
   const [status, setStatus] = useState(tool?.status ?? "stopped");
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState(null);
+  const [launchConfirmation, setLaunchConfirmation] = useState(false);
   const [unregisterError, setUnregisterError] = useState(null);
 
   useEffect(() => {
     setStatus(tool?.status ?? "stopped");
   }, [tool?.status]);
+
+  useEffect(() => {
+    setLaunchConfirmation(false);
+  }, [tool?.id, tool?.status]);
 
   if (!tool) return null;
 
@@ -171,6 +176,7 @@ export default function ToolCard({ tool, onUnregistered }) {
   const entry = manifest?.entry ?? {};
   const env = manifest?.env ?? {};
   const permissions = manifest?.permissions ?? null;
+  const isEnforced = permissions?.mode === "enforced";
   const currentStatus = status === "running" ? "running" : "stopped";
   const actionEndpoint = currentStatus === "running" ? "/api/tools/stop" : "/api/tools/launch";
   const actionLabel = currentStatus === "running" ? "Stop" : "Launch";
@@ -198,10 +204,16 @@ export default function ToolCard({ tool, onUnregistered }) {
         body: JSON.stringify({ id: tool.id }),
       });
       const body = await res.json();
+      if (currentStatus !== "running" && res.status === 409 && body?.needsConfirmation) {
+        setLaunchConfirmation(true);
+        return;
+      }
       if (!body?.ok) {
+        setLaunchConfirmation(false);
         setActionError(body?.error || `${actionLabel.toLowerCase()} failed`);
         return;
       }
+      setLaunchConfirmation(false);
       setStatus(nextStatus);
       try {
         await refreshStatus();
@@ -213,6 +225,40 @@ export default function ToolCard({ tool, onUnregistered }) {
     } finally {
       setActionBusy(false);
     }
+  }
+
+  async function handleConfirmLaunch() {
+    if (actionBusy || !entry.devCommand) return;
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const res = await fetch("/api/tools/launch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: tool.id, confirm: true }),
+      });
+      const body = await res.json();
+      if (!body?.ok) {
+        setActionError(body?.error || "launch failed");
+        return;
+      }
+      setLaunchConfirmation(false);
+      setStatus("running");
+      try {
+        await refreshStatus();
+      } catch (err) {
+        setActionError(err?.message || "status refresh failed");
+      }
+    } catch (err) {
+      setActionError(err?.message || "launch failed");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  function handleCancelLaunchConfirmation() {
+    if (actionBusy) return;
+    setLaunchConfirmation(false);
   }
 
   async function handleUnregister() {
@@ -289,13 +335,41 @@ export default function ToolCard({ tool, onUnregistered }) {
                   currentStatus === "running" ? "tc-tool-action-stop" : "tc-tool-action-launch"
                 }`}
                 onClick={handleToolAction}
-                disabled={actionBusy || !entry.devCommand}
+                disabled={actionBusy || !entry.devCommand || (currentStatus !== "running" && launchConfirmation)}
                 data-tool-card-launch-stop
                 data-tool-card-action={currentStatus === "running" ? "stop" : "launch"}
               >
                 {actionBusy ? actionBusyLabel : actionLabel}
               </button>
             </div>
+            {launchConfirmation && currentStatus !== "running" && (
+              <div className="tc-launch-confirmation" data-tool-card-launch-confirmation>
+                <span className="tc-launch-confirmation-text">
+                  This tool will run{" "}
+                  <code className="tc-code tc-confirm-command">{entry.devCommand}</code>. Launch it?
+                </span>
+                <div className="tc-launch-confirmation-actions">
+                  <button
+                    type="button"
+                    className="tc-tool-action tc-tool-action-launch"
+                    onClick={handleConfirmLaunch}
+                    disabled={actionBusy}
+                    data-tool-card-confirm-launch
+                  >
+                    {actionBusy ? "Launching..." : "Confirm launch"}
+                  </button>
+                  <button
+                    type="button"
+                    className="tc-text-action"
+                    onClick={handleCancelLaunchConfirmation}
+                    disabled={actionBusy}
+                    data-tool-card-cancel-launch
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
             {actionError && <span className="tc-inline-error">{actionError}</span>}
             <div className="tc-meta-row">
               {typeof entry.port === "number" && <span>port {entry.port}</span>}
@@ -324,9 +398,20 @@ export default function ToolCard({ tool, onUnregistered }) {
 
           <section className="tc-section tc-permissions" data-tool-card-permissions>
             <span className="tc-section-title">Permissions</span>
-            <p className="tc-permissions-label">
-              Declared by the tool — not enforced by Studio.
-            </p>
+            <div className="tc-permissions-label-row">
+              <p className="tc-permissions-label">
+                Declared by the tool — not enforced by Studio.
+              </p>
+              {isEnforced && (
+                <span
+                  className="tc-enforced-label"
+                  title="Enforced: launch command restricted to allowed binaries"
+                  data-tool-card-enforced
+                >
+                  Enforced
+                </span>
+              )}
+            </div>
             <div className="tc-permissions-grid">
               <div>
                 <span className="tc-permissions-sub">Filesystem</span>
@@ -546,6 +631,31 @@ export default function ToolCard({ tool, onUnregistered }) {
           background: var(--danger-soft);
           color: var(--danger);
         }
+        .tc-launch-confirmation {
+          padding-top: 8px;
+          border-top: 1px solid var(--border);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .tc-launch-confirmation-text {
+          flex: 1;
+          min-width: 220px;
+          font-size: 12px;
+          line-height: 1.4;
+          color: var(--ink);
+        }
+        .tc-confirm-command {
+          overflow-wrap: anywhere;
+        }
+        .tc-launch-confirmation-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
         .tc-meta-row {
           display: flex;
           gap: 12px;
@@ -618,6 +728,17 @@ export default function ToolCard({ tool, onUnregistered }) {
           font-size: 12px;
           font-weight: 600;
           color: var(--policy);
+        }
+        .tc-permissions-label-row {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .tc-enforced-label {
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--accent-strong);
         }
         .tc-permissions-grid {
           margin-top: 8px;
