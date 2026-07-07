@@ -7,10 +7,16 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { TASKS, buildTaskMessage, scoreTask, aggregateCondition } from "../scripts/doe/tasks.mjs";
+import {
+  TASKS,
+  buildTaskMessage,
+  scoreTask,
+  aggregateCondition,
+  DOE_ENGINE_PATH,
+} from "@tyroneross/builder-tools";
 
 const ROOT = process.cwd();
-const ENGINE = join(ROOT, "scripts", "doe", "doe.py");
+const ENGINE = DOE_ENGINE_PATH;
 
 test("tasks: buildTaskMessage applies schema and strict-suffix factors", () => {
   const bare = buildTaskMessage(TASKS[0], { schemaInPrompt: false, strictSuffix: false });

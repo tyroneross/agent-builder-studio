@@ -2,7 +2,8 @@
 import { AGENT_STRUCTURES } from "../agent-structures/index.js";
 import { buildAgentArtifacts } from "@tyroneross/agent-pack";
 import { validateStructureAgainstResearch, validateStructuresAgainstResearch } from "../lib/research-validation.js";
-import { runSandboxSuite } from "../sandbox/runner.js";
+import { runSandboxSuite } from "@tyroneross/builder-tools";
+import { writeAgentArtifacts } from "../lib/build-files.js";
 
 const args = new Set(process.argv.slice(2));
 const run = args.has("--run") || args.has("--e2e");
@@ -34,7 +35,7 @@ const staticRows = AGENT_STRUCTURES.map((structure) => {
 let e2e = null;
 const researchValidation = validateStructuresAgainstResearch(AGENT_STRUCTURES);
 if (run) {
-  e2e = await runSandboxSuite(AGENT_STRUCTURES, { llmMode, model, scenarioLimit });
+  e2e = await runSandboxSuite(AGENT_STRUCTURES, { llmMode, model, scenarioLimit, writeAgentArtifacts });
 }
 
 if (json) {

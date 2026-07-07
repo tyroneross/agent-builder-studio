@@ -1,6 +1,5 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import { writeAgentArtifacts } from "../lib/build-files.js";
 import { LocalLLM } from "./local-llm.js";
 
 const DEFAULT_ARTIFACT_PROFILE = {
@@ -13,6 +12,7 @@ export async function runAgentStructure(structure, options = {}) {
   const root = options.root ?? await mkdtemp(join(sandboxTempRoot(), "agent-builder-sandbox-"));
   const sandboxRoot = resolve(root);
   const llm = options.llm ?? new LocalLLM({ mode: options.llmMode, model: options.model });
+  const writeAgentArtifacts = resolveArtifactWriter(options);
   const artifactProfile = { ...DEFAULT_ARTIFACT_PROFILE, ...(options.artifactProfile ?? {}) };
   const spec = structure.spec;
   const build = await writeAgentArtifacts(spec, { root: sandboxRoot });
@@ -100,6 +100,7 @@ export async function runSandboxSuite(structures, options = {}) {
       llm,
       scenarioLimit: options.scenarioLimit,
       artifactProfile: options.artifactProfile,
+      writeAgentArtifacts: options.writeAgentArtifacts ?? options.artifactWriter,
     }));
   }
 
@@ -135,6 +136,16 @@ function normalizeScenarios(structure, scenarioLimit) {
 
 function sandboxTempRoot() {
   return resolve(process.env.AGENT_BUILDER_TMPDIR ?? "/tmp");
+}
+
+function resolveArtifactWriter(options) {
+  const writer = options.writeAgentArtifacts ?? options.artifactWriter;
+  if (typeof writer !== "function") {
+    throw new Error(
+      "runAgentStructure requires options.writeAgentArtifacts from the host builder package.",
+    );
+  }
+  return writer;
 }
 
 function buildPrompt(structure, scenario, manifest) {

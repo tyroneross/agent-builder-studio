@@ -23,14 +23,13 @@
 
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chat, probeMlx, probeOllama, DEFAULT_MLX_URL } from "@tyroneross/local-llm";
-import { TASKS, buildTaskMessage, aggregateCondition } from "./tasks.mjs";
+import { TASKS, buildTaskMessage, aggregateCondition, DOE_ENGINE_PATH } from "@tyroneross/builder-tools";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(HERE, "../..");
-const ENGINE = join(HERE, "doe.py");
+const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const ENGINE = DOE_ENGINE_PATH;
 
 const OLLAMA_MODEL = process.env.DOE_OLLAMA_MODEL ?? "llama3.2:3b";
 const MLX_MODEL = process.env.DOE_MLX_MODEL ?? "mlx-community/Llama-3.2-3B-Instruct-4bit";
@@ -162,7 +161,7 @@ async function main() {
     schemaVersion: "agent-builder.local-json-doe.v1",
     ranAt: new Date().toISOString(),
     mode: fixture ? "fixture" : "live",
-    engine: "scripts/doe/doe.py (multi-goal, numpy-only)",
+    engine: "packages/builder-tools/src/doe/doe.py (multi-goal, numpy-only)",
     design: { type: design.design_type ?? "full factorial 2^3", seed: 42, factors: FACTORS },
     objectives: OBJECTIVES,
     models: { ollama: OLLAMA_MODEL, mlx: MLX_MODEL },

@@ -1,0 +1,21 @@
+{
+  "name": "@tyroneross/builder-tools",
+  "version": "0.1.0",
+  "description": "Reusable Agent Builder tooling: DOE primitives, sandbox execution, local LLM fixture, and validation scoring.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "src/"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "license": "Apache-2.0"
+}

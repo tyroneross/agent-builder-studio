@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { AGENT_STRUCTURES } from "../agent-structures/index.js";
-import { runSandboxSuite } from "../sandbox/runner.js";
+import { runSandboxSuite } from "@tyroneross/builder-tools";
+import { writeAgentArtifacts } from "../lib/build-files.js";
 
 const args = new Set(process.argv.slice(2));
 const json = args.has("--json");
@@ -36,6 +37,7 @@ for (const factors of fullFactorial(FACTORS)) {
     model,
     scenarioLimit,
     artifactProfile: factors,
+    writeAgentArtifacts,
   });
   runs.push({
     factors,

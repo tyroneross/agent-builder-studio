@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { AGENT_STRUCTURES } from "../agent-structures/index.js";
-import { runSandboxSuite } from "../sandbox/runner.js";
+import { runSandboxSuite } from "@tyroneross/builder-tools";
+import { writeAgentArtifacts } from "../lib/build-files.js";
 
 const args = new Set(process.argv.slice(2));
 const scoreOnly = args.has("--score");
@@ -10,7 +11,7 @@ const model = readFlag("--model") ?? process.env.OLLAMA_MODEL;
 const scenarioLimit = readFlag("--scenario-limit");
 
 try {
-  const result = await runSandboxSuite(AGENT_STRUCTURES, { llmMode, model, scenarioLimit });
+  const result = await runSandboxSuite(AGENT_STRUCTURES, { llmMode, model, scenarioLimit, writeAgentArtifacts });
   if (scoreOnly) {
     process.stdout.write(`${result.score}\n`);
   } else if (json) {

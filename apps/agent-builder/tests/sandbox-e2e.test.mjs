@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AGENT_STRUCTURES } from "../agent-structures/index.js";
 import { validateStructureAgainstResearch, validateStructuresAgainstResearch } from "../lib/research-validation.js";
-import { runSandboxSuite } from "../sandbox/runner.js";
+import { runSandboxSuite } from "@tyroneross/builder-tools";
+import { writeAgentArtifacts } from "../lib/build-files.js";
 
 async function makeTestRoot(prefix) {
   const base = process.env.AGENT_BUILDER_TMPDIR || join(process.cwd(), ".tmp");
@@ -15,7 +16,7 @@ async function makeTestRoot(prefix) {
 test("all agent structures build and pass sandbox scenarios", async () => {
   const root = await makeTestRoot("agent-builder-e2e-");
   try {
-    const result = await runSandboxSuite(AGENT_STRUCTURES, { root, llmMode: "fixture" });
+    const result = await runSandboxSuite(AGENT_STRUCTURES, { root, llmMode: "fixture", writeAgentArtifacts });
 
     assert.equal(result.total, AGENT_STRUCTURES.length);
     assert.ok(result.total >= 6);

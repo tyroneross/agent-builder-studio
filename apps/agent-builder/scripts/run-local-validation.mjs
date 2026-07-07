@@ -3,8 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { AGENT_STRUCTURES } from "../agent-structures/index.js";
-import { runAgentStructure } from "../sandbox/runner.js";
-import { buildLocalValidationScorecard } from "../sandbox/local-validation-scorecard.js";
+import { runAgentStructure, buildLocalValidationScorecard } from "@tyroneross/builder-tools";
+import { writeAgentArtifacts } from "../lib/build-files.js";
 
 const ROOT = resolve(new URL("..", import.meta.url).pathname);
 
@@ -81,6 +81,7 @@ for (const structure of pending) {
       llmMode,
       model,
       scenarioLimit,
+      writeAgentArtifacts,
     });
     state.results[structure.id] = result;
     state.runOrder.push(structure.id);
