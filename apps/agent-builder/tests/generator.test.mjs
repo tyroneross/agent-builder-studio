@@ -61,6 +61,12 @@ test("all bundled patterns generate the core artifact set", () => {
     "runtime/doc-ingest.mjs",
     "skills/threat-modeler.skill.md",
     "skills/pyramid-principle.skill.md",
+    // Emitted by research-evidence patterns (research-orchestrator): the
+    // source-manifest + claim-table JSON schemas the host runtime validates
+    // against, plus the research-evidence contract.
+    "context/source-manifest.schema.json",
+    "evals/research-claim-table.schema.json",
+    "contracts/research-evidence.yaml",
   ]);
 
   for (const pattern of PATTERNS) {

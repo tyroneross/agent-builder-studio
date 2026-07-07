@@ -93,6 +93,35 @@ const RESEARCH_ORCHESTRATOR = {
   ],
 };
 
+// Earnings Call Research — Type III, primary-source research with a hard fact gate.
+const EARNINGS_CALL_RESEARCH = {
+  id: "earnings-call-research",
+  name: "Earnings Call Research",
+  shortDescription: "Source-backed earnings-call claims with a fact gate.",
+  category: "Type III",
+  rolePromptOverrides: {},
+  nodes: [
+    { id: "scope", role: "orchestrator", title: "Research scope", description: "Normalize company, ticker, fiscal period, question, and source policy into an auditable research plan.", instructions: "", x: 80, y: 240, w: NODE_W, h: NODE_H },
+    { id: "source-plan", role: "agent", title: "Source planner", description: "Resolve issuer, period, required materials, and primary-source precedence before retrieval.", instructions: "", x: 360, y: 80, w: NODE_W, h: NODE_H },
+    { id: "retrieval", role: "executor", title: "Source retrieval", description: "Retrieve or request approved earnings releases, filings, presentations, webcast records, and transcripts.", instructions: "", x: 360, y: 240, w: NODE_W, h: NODE_H },
+    { id: "ingest", role: "agent", title: "Document ingest", description: "Parse source documents into source-linked chunks with speaker, section, page, timestamp, or accession locators.", instructions: "", x: 640, y: 80, w: NODE_W, h: NODE_H },
+    { id: "claim-extractor", role: "agent", title: "Claim extractor", description: "Extract metric, value, period, speaker, quote, source ID, and confidence rows.", instructions: "", x: 640, y: 240, w: NODE_W, h: NODE_H },
+    { id: "fact-gate", role: "eval", title: "Fact gate", description: "Cross-check material claim rows, classify support status, and block unsupported claims from synthesis.", instructions: "", x: 920, y: 160, w: NODE_W, h: NODE_H },
+    { id: "synthesis", role: "agent", title: "Cited synthesis", description: "Write the research brief from verified claims only with citations and an unverified-claims appendix.", instructions: "", x: 1200, y: 80, w: NODE_W, h: NODE_H },
+    { id: "research-memory", role: "memory", title: "Research memory", description: "Persist approved source aliases, rejected claims, and eval-gated lessons without treating unsupported facts as truth.", instructions: "", x: 1200, y: 260, w: NODE_W, h: NODE_H },
+  ],
+  edges: [
+    { id: "scope->source-plan", from: "scope", to: "source-plan" },
+    { id: "source-plan->retrieval", from: "source-plan", to: "retrieval" },
+    { id: "retrieval->ingest", from: "retrieval", to: "ingest" },
+    { id: "ingest->claim-extractor", from: "ingest", to: "claim-extractor" },
+    { id: "claim-extractor->fact-gate", from: "claim-extractor", to: "fact-gate" },
+    { id: "fact-gate->synthesis", from: "fact-gate", to: "synthesis" },
+    { id: "synthesis->research-memory", from: "synthesis", to: "research-memory" },
+    { id: "fact-gate->research-memory", from: "fact-gate", to: "research-memory" },
+  ],
+};
+
 // Evaluator Optimizer — Type II, bounded generator-critic loop with stop.
 const EVALUATOR_OPTIMIZER = {
   id: "evaluator-optimizer",
@@ -121,6 +150,7 @@ export const CANVAS_PATTERNS = [
   SOLO_TOOL_AGENT,
   APPROVAL_WORKFLOW,
   RESEARCH_ORCHESTRATOR,
+  EARNINGS_CALL_RESEARCH,
   EVALUATOR_OPTIMIZER,
 ];
 

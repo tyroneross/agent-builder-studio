@@ -81,6 +81,7 @@ export function normalizeSpec(input = {}) {
     tools: Array.isArray(input.tools) ? input.tools : pattern.tools,
     memory: input.memory || pattern.memory,
     permissions: input.permissions || pattern.permissions,
+    researchEvidence: input.researchEvidence || pattern.researchEvidence,
     evals: Array.isArray(input.evals) ? input.evals : pattern.evals,
     learning: input.learning,
     modelProfiles: input.modelProfiles,
@@ -256,6 +257,7 @@ function buildManifest(spec, createdAt, specProfile) {
       edges: spec.edges ?? [],
     },
     permissions: spec.permissions,
+    ...(getResearchEvidenceConfig(spec) ? { researchEvidence: getResearchEvidenceConfig(spec) } : {}),
     memory: spec.memory,
     learning: spec.learning,
     prompting: buildPromptingProfile(spec),
@@ -302,6 +304,8 @@ ${buildModelProfilePromptSection(spec)}
 - Stop with a visible reason when a required permission, source, or input is missing.
 - Learn only through eval-gated domain updates. Candidate lessons must include provenance, a failed check or improvement signal, and a rollback note before they can enter persistent memory.
 
+${buildResearchEvidencePromptSection(spec)}
+
 ## Nodes
 ${nodes}
 
@@ -322,6 +326,217 @@ function buildModelProfilePromptSection(spec) {
 - Fallback models: ${(spec.modelProfiles.fallbacks ?? []).map((item) => `${item.model} (${item.use})`).join("; ") || "none"}
 - Stretch models: ${(spec.modelProfiles.stretch ?? []).map((item) => `${item.model} (${item.use})`).join("; ") || "none"}
 - Context policy: ${spec.modelProfiles.contextPolicy}
+`;
+}
+
+const RESEARCH_EVIDENCE_OUTPUTS = new Set([
+  "source_manifest",
+  "claim_table",
+  "verified_claims",
+  "unverified_claims",
+  "cited_research_brief",
+]);
+
+const DEFAULT_RESEARCH_EVIDENCE = {
+  schemaVersion: "agent-builder.research-evidence.v1",
+  sourceTypes: ["primary_source", "secondary_source", "operator_supplied_source"],
+  claimStatuses: ["verified", "partially_supported", "contradicted", "not_found", "requires_human_review"],
+  requiredOutputs: ["source_manifest", "claim_table", "unverified_claims", "cited_research_brief"],
+  unsupportedClaimsPolicy: "separate_and_label",
+  primarySourceRule: "Prefer primary sources over secondary sources. Do not let summaries override source documents.",
+};
+
+function getResearchEvidenceConfig(spec) {
+  const outputMatch = (spec.outputs ?? []).some((output) => RESEARCH_EVIDENCE_OUTPUTS.has(output));
+  const haystack = JSON.stringify({
+    description: spec.description,
+    inputs: spec.inputs,
+    outputs: spec.outputs,
+    tools: spec.tools,
+    nodes: spec.nodes,
+  }).toLowerCase();
+  const intentMatch = /\b(citation|source manifest|claim table|verified claims|unverified claims|fact gate|unsupported claim|earnings call|primary source)\b/.test(haystack);
+  if (!spec.researchEvidence && !outputMatch && !intentMatch) return null;
+
+  const explicit = spec.researchEvidence ?? {};
+  return {
+    ...DEFAULT_RESEARCH_EVIDENCE,
+    ...explicit,
+    sourceTypes: explicit.sourceTypes ?? DEFAULT_RESEARCH_EVIDENCE.sourceTypes,
+    claimStatuses: explicit.claimStatuses ?? DEFAULT_RESEARCH_EVIDENCE.claimStatuses,
+    requiredOutputs: explicit.requiredOutputs
+      ?? (outputMatch ? (spec.outputs ?? []).filter((output) => RESEARCH_EVIDENCE_OUTPUTS.has(output)) : DEFAULT_RESEARCH_EVIDENCE.requiredOutputs),
+  };
+}
+
+function buildResearchEvidencePromptSection(spec) {
+  const evidence = getResearchEvidenceConfig(spec);
+  if (!evidence) return "";
+  return `## Research Evidence Rules
+- Treat \`contracts/research-evidence.yaml\` as a hard output gate, not optional guidance.
+- Build \`source_manifest\` before extracting claims. Each source needs a stable source ID, source type, title, publisher, URL or local path, retrieval date, period, and locator strategy.
+- Build \`claim_table\` before synthesis. Each material claim needs subject, metric, value, period, source IDs, quote or locator, confidence, and verification status.
+- Unsupported factual claims follow policy \`${evidence.unsupportedClaimsPolicy}\`: put them in \`unverified_claims\` and do not present them as established facts in \`cited_research_brief\`.
+- Use this primary-source rule: ${evidence.primarySourceRule}
+- Stop with \`source_or_tool_unavailable\` or \`eval_or_quality_gate_failed\` when required evidence is missing.
+`;
+}
+
+function buildResearchEvidenceContract(spec, manifest) {
+  const evidence = getResearchEvidenceConfig(spec);
+  return yamlContract("Research Evidence Contract", {
+    research_evidence: {
+      schemaVersion: evidence.schemaVersion,
+      agent: spec.projectName,
+      slug: manifest.slug,
+      source_types: evidence.sourceTypes,
+      claim_statuses: evidence.claimStatuses,
+      required_outputs: evidence.requiredOutputs,
+      unsupported_claims_policy: evidence.unsupportedClaimsPolicy,
+      primary_source_rule: evidence.primarySourceRule,
+      source_manifest: {
+        required_fields: [
+          "source_id",
+          "source_type",
+          "title",
+          "publisher",
+          "url_or_path",
+          "retrieved_at",
+          "fiscal_period",
+          "document_date",
+          "locator_strategy",
+        ],
+      },
+      claim_table: {
+        required_fields: [
+          "claim_id",
+          "subject",
+          "metric",
+          "value",
+          "period",
+          "source_ids",
+          "quote_or_locator",
+          "status",
+          "confidence",
+          "verification_notes",
+        ],
+        allowed_statuses: evidence.claimStatuses,
+      },
+      final_brief_gate: {
+        may_include_statuses: ["verified", "partially_supported"],
+        blocked_statuses: ["contradicted", "not_found", "requires_human_review"],
+        citation_required: true,
+        unverified_appendix_required: true,
+      },
+    },
+  });
+}
+
+function buildSourceManifestSchema(spec) {
+  const evidence = getResearchEvidenceConfig(spec);
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    title: `${spec.projectName} Source Manifest`,
+    type: "array",
+    minItems: 1,
+    items: {
+      type: "object",
+      additionalProperties: true,
+      required: [
+        "source_id",
+        "source_type",
+        "title",
+        "publisher",
+        "url_or_path",
+        "retrieved_at",
+        "fiscal_period",
+        "document_date",
+        "locator_strategy",
+      ],
+      properties: {
+        source_id: { type: "string", minLength: 1 },
+        source_type: { type: "string", enum: evidence.sourceTypes },
+        title: { type: "string", minLength: 1 },
+        publisher: { type: "string", minLength: 1 },
+        url_or_path: { type: "string", minLength: 1 },
+        retrieved_at: { type: "string", minLength: 1 },
+        fiscal_period: { type: "string", minLength: 1 },
+        document_date: { type: "string", minLength: 1 },
+        locator_strategy: { type: "string", minLength: 1 },
+      },
+    },
+  };
+}
+
+function buildClaimTableSchema(spec) {
+  const evidence = getResearchEvidenceConfig(spec);
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    title: `${spec.projectName} Claim Table`,
+    type: "array",
+    minItems: 1,
+    items: {
+      type: "object",
+      additionalProperties: true,
+      required: [
+        "claim_id",
+        "subject",
+        "metric",
+        "value",
+        "period",
+        "source_ids",
+        "quote_or_locator",
+        "status",
+        "confidence",
+        "verification_notes",
+      ],
+      properties: {
+        claim_id: { type: "string", minLength: 1 },
+        subject: { type: "string", minLength: 1 },
+        metric: { type: "string", minLength: 1 },
+        value: { type: ["string", "number", "boolean"] },
+        period: { type: "string", minLength: 1 },
+        source_ids: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+        quote_or_locator: { type: "string", minLength: 1 },
+        status: { type: "string", enum: evidence.claimStatuses },
+        confidence: { type: "number", minimum: 0, maximum: 1 },
+        verification_notes: { type: "string" },
+      },
+    },
+  };
+}
+
+function buildResearchEvidenceFiles(spec, manifest) {
+  if (!getResearchEvidenceConfig(spec)) return [];
+  return [
+    { path: "contracts/research-evidence.yaml", content: buildResearchEvidenceContract(spec, manifest) },
+    { path: "context/source-manifest.schema.json", content: `${JSON.stringify(buildSourceManifestSchema(spec), null, 2)}\n` },
+    { path: "evals/research-claim-table.schema.json", content: `${JSON.stringify(buildClaimTableSchema(spec), null, 2)}\n` },
+  ];
+}
+
+function buildResearchEvidenceReadmeSection(spec) {
+  const evidence = getResearchEvidenceConfig(spec);
+  if (!evidence) return "";
+  return `## Research Evidence Contract
+
+- Contract: \`contracts/research-evidence.yaml\`
+- Source manifest schema: \`context/source-manifest.schema.json\`
+- Claim table schema: \`evals/research-claim-table.schema.json\`
+- Unsupported claims policy: \`${evidence.unsupportedClaimsPolicy}\`
+- Required evidence outputs: ${evidence.requiredOutputs.map((output) => `\`${output}\``).join(", ")}
+`;
+}
+
+function buildResearchEvidenceInputContractSection(spec) {
+  const evidence = getResearchEvidenceConfig(spec);
+  if (!evidence) return "";
+  return `## Research Evidence Inputs
+
+- Provide or authorize source access before synthesis. The preferred source types are ${evidence.sourceTypes.map((type) => `\`${type}\``).join(", ")}.
+- The host runtime must preserve retrieval date, source ID, source type, fiscal period, and locator metadata for every source.
+- The host runtime must validate \`source_manifest\` with \`context/source-manifest.schema.json\` and \`claim_table\` with \`evals/research-claim-table.schema.json\`.
+- The final brief may use only claims with \`verified\` or \`partially_supported\` status.
 `;
 }
 
@@ -814,6 +1029,8 @@ ${packageFiles.map((file) => `- \`${file}\``).join("\n")}
 
 ${manifest.specProfile.contractFiles.map((file) => `- \`${file}\``).join("\n")}
 
+${buildResearchEvidenceReadmeSection(spec)}
+
 ${buildLocalModelReadmeSection(spec)}
 
 ## User Flow
@@ -898,6 +1115,13 @@ function buildAgentPackageManifest(spec, manifest, packageFiles) {
       runtimeAdapterContract: "runtime/adapter-contract.md",
       runtimeCheck: "runtime/custom-loop-adapter.mjs",
       specProfile: "contracts/spec-profile.json",
+      ...(packageFiles.includes("contracts/research-evidence.yaml")
+        ? {
+            researchEvidence: "contracts/research-evidence.yaml",
+            sourceManifestSchema: "context/source-manifest.schema.json",
+            claimTableSchema: "evals/research-claim-table.schema.json",
+          }
+        : {}),
     },
     specProfile: manifest.specProfile,
     installTargets: [
@@ -1154,6 +1378,8 @@ ${spec.inputs.map((input) => `- \`${input}\` — provide through the host runtim
 ## Expected Outputs
 
 ${spec.outputs.map((output) => `- \`${output}\``).join("\n")}
+
+${buildResearchEvidenceInputContractSection(spec)}
 
 ## Context Portability
 
@@ -1500,10 +1726,12 @@ export function buildAgentArtifacts(input, options = {}) {
   const emitted = resolveEmittedCapabilities(spec, manifest);
   manifest.governance = buildGovernanceManifest(spec, specProfile, emitted.tools);
   const contractFiles = buildContractFiles(spec, manifest, emitted.tools);
+  const researchEvidenceFiles = buildResearchEvidenceFiles(spec, manifest);
   const packageFiles = [
     ...new Set([
       ...CORE_FILES,
       ...contractFiles.map((file) => file.path),
+      ...researchEvidenceFiles.map((file) => file.path),
       ...emitted.files.map((file) => file.path),
     ]),
   ];
@@ -1525,6 +1753,7 @@ export function buildAgentArtifacts(input, options = {}) {
     governance: manifest.governance,
     prompting: manifest.prompting,
     learning: spec.learning,
+    ...(getResearchEvidenceConfig(spec) ? { researchEvidence: getResearchEvidenceConfig(spec) } : {}),
     ...(spec.modelProfiles ? { modelProfiles: spec.modelProfiles } : {}),
   };
 
@@ -1553,6 +1782,7 @@ export function buildAgentArtifacts(input, options = {}) {
     { path: "context/input-contract.md", content: buildInputContractMarkdown(spec) },
     { path: "tools.json", content: `${JSON.stringify(buildTools(spec, emitted.tools), null, 2)}\n` },
     ...contractFiles,
+    ...researchEvidenceFiles,
     { path: "setup/requirements.json", content: `${JSON.stringify(buildSetupRequirements(spec, manifest, packageFiles), null, 2)}\n` },
     { path: "setup/env.example", content: buildEnvExample(spec) },
     { path: "setup/install-checklist.md", content: buildInstallChecklist(spec, manifest) },
@@ -1598,6 +1828,9 @@ function buildWarnings(spec) {
   }
   if (spec.learning && !spec.nodes.some((node) => node.kind === "memory")) {
     warnings.push("Domain learning is configured but no memory node is visible in the graph.");
+  }
+  if (getResearchEvidenceConfig(spec) && !(spec.inputs ?? []).includes("source_policy")) {
+    warnings.push("Research evidence packages should include a source_policy input so the host can constrain source tiers and retrieval permissions.");
   }
   if (spec.sources?.includes("openclaw-security")) {
     warnings.push("OpenClaw-style self-hosted agents require strict network isolation and credential boundaries.");
