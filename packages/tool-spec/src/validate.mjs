@@ -2,9 +2,18 @@
 // @tyroneross/agent-spec's src/validate.mjs: a pure function that returns an
 // array of error strings (empty = valid). No throwing, no side effects.
 
-import { isAcceptedSchemaVersion, TOOL_TYPES, ENTRY_KINDS, PERMISSION_MODES } from "./schema.mjs";
+import {
+  ENFORCED_BINARY_ALLOWLIST,
+  ENTRY_KINDS,
+  PERMISSION_MODES,
+  TOOL_TYPES,
+  firstDevCommandToken,
+  isAcceptedSchemaVersion,
+} from "./schema.mjs";
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const ENFORCED_DEV_COMMAND_ERROR =
+  "enforced tool devCommand must start with an allowed binary (npm|pnpm|yarn|node) or an absolute path";
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -94,6 +103,11 @@ export function validateToolManifest(manifest) {
       errors.push("permissions must be an object.");
     } else if (!PERMISSION_MODES.includes(m.permissions.mode)) {
       errors.push(`permissions.mode must be one of: ${PERMISSION_MODES.join(", ")}.`);
+    } else if (m.permissions.mode === "enforced" && isNonEmptyString(m.entry?.devCommand)) {
+      const firstToken = firstDevCommandToken(m.entry.devCommand);
+      if (!ENFORCED_BINARY_ALLOWLIST.includes(firstToken) && !firstToken.startsWith("/")) {
+        errors.push(ENFORCED_DEV_COMMAND_ERROR);
+      }
     }
   }
 

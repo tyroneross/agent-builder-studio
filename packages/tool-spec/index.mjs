@@ -9,6 +9,8 @@ export {
   TOOL_TYPES,
   ENTRY_KINDS,
   PERMISSION_MODES,
+  ENFORCED_BINARY_ALLOWLIST,
+  firstDevCommandToken,
 } from "./src/schema.mjs";
 export { validateToolManifest } from "./src/validate.mjs";
 export { loadToolManifest } from "./src/load.mjs";

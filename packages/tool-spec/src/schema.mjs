@@ -30,4 +30,11 @@ export const TOOL_TYPES = Object.freeze(["workflow-app", "cli", "service"]);
 
 export const ENTRY_KINDS = Object.freeze(["next-app", "node-app", "cli"]);
 
-export const PERMISSION_MODES = Object.freeze(["disclosure"]);
+export const PERMISSION_MODES = Object.freeze(["disclosure", "enforced"]);
+
+export const ENFORCED_BINARY_ALLOWLIST = Object.freeze(["npm", "pnpm", "yarn", "node"]);
+
+export function firstDevCommandToken(devCommand) {
+  if (typeof devCommand !== "string") return "";
+  return devCommand.trim().split(/\s+/)[0] ?? "";
+}
