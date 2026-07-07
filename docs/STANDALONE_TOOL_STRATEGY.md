@@ -40,6 +40,7 @@ If this were built from scratch, the repo would make the primary launch path obv
 | `packages/agent-pack` | Deterministic spec-to-package generation | Core package | Direct dependency | Used by Studio and tool packaging flows. |
 | `packages/agent-artifacts` | Local artifact staging and promotion | Core package | Direct dependency | Tools should write artifacts through this layer instead of ad hoc file output. |
 | `packages/local-llm` | Local-first model routing and fallback client | Core package | Direct dependency | Studio should expose only available local/API-backed models through this package. |
+| `@tyroneross/omniparse` (external npm) | Document/transcript parsing SDK | External published dependency | npm dependency of `agent-studio` + `meetings` | Not in this repo. `meetings` reaches it via the `OMNIPARSE_SDK_PATH` env var (declared in its manifest), no longer a hardcoded absolute path. |
 
 ## Proposed Architecture
 
@@ -128,30 +129,32 @@ The practical path is to keep first-party tools here until the manifest and adap
 
 ## Migration Plan
 
-1. Define `agent-tool.json` schema and validator.
-2. Add manifests to `apps/meetings`, `apps/investments`, and `apps/cos`.
-3. Add a Studio tool registry that lists local manifests and shows status, launch command, required permissions, and available outputs.
-4. Move reusable legacy Builder logic from `apps/agent-builder` into packages or `apps/builder-tools`.
-5. Archive or adapt `apps/chief-of-staff` after confirming whether `apps/cos` covers the same jobs.
-6. Add local path ingestion first, because it is easiest to test and matches power-user workflows.
-7. Add package, git URL, and exported bundle ingestion after the local path flow is reliable.
-8. Add a sample external tool repo fixture to prove future users can bring their own tools.
+1. ✅ **Done (v1).** Define `agent-tool.json` schema and validator → `packages/tool-spec` (zero-dep, house-style validator).
+2. ✅ **Done (v1).** Add manifests to `apps/meetings`, `apps/investments`, and `apps/cos` → all three validate; discovered by the registry.
+3. ✅ **Done (v1).** Add a Studio tool registry → `apps/agent-studio/app/lib/tool-registry.mjs` + `/api/tools/{list,register,unregister}` + `/dashboard` (status, dev command, permissions disclosure, outputs).
+4. ⏳ **v2.** Move reusable legacy Builder logic from `apps/agent-builder` into packages or `apps/builder-tools`. (Inventory classified in `docs/LEGACY_TRIAGE.md`.)
+5. ⏳ **v2 (decision documented).** Archive or adapt `apps/chief-of-staff` → behavior diff vs `apps/cos` in `docs/LEGACY_TRIAGE.md`; archival itself deferred.
+6. ✅ **Done (v1).** Local path ingestion → `POST /api/tools/register` validates + persists external local paths (`.agent-studio/tool-registry.json`).
+7. ⏳ **v2.** Package, git URL, and exported bundle ingestion.
+8. ⏳ **v2.** Sample external tool repo fixture.
 
-## Open Decisions
+## Open Decisions — Resolved (v1)
 
-- Should a loaded tool open inside Studio, open as a separate local app, or support both?
-- Should user-provided tools run as trusted local code first, or should the first version require a sandbox boundary?
-- Should tool installs be managed by Studio, or should Studio only register already-installed local paths?
-- Should first-party standalone tools move from `apps/` to a future `tools/` folder, or should `apps/` remain the convention for runnable surfaces?
-- Should the tool manifest live in `packages/agent-spec`, or should there be a new `packages/tool-spec` package?
+Two independent assessments concurred on all five (see `STANDALONE_TOOL_ASSESSMENT_COMPARISON.md`):
+
+1. **Loaded tool opens** → separate local app; Studio is status board + launch command (no spawn in v1; embed = v2).
+2. **Trust model** → trusted local code; manifest permissions shown as **disclosure** ("declared by the tool — not enforced by Studio"). Sandbox = v2; `permissions.mode` in the schema makes enforcement a value change, not a schema break.
+3. **Installs** → register-only local paths (no install machinery).
+4. **Folder** → keep `apps/`; `entry.workspace` decouples identity from location.
+5. **Manifest home** → new `packages/tool-spec` (keeps `agent-spec`'s graph-spec contract clean; subpath-export alternative weighed and rejected).
 
 ## Acceptance Criteria
 
 The cleanup is working when:
 
-- `npm run dev` still has one obvious result: Agent Builder Studio at `http://localhost:3030`.
-- Studio has a clean dashboard showing core project status, agent graph status, tool status, and recent runs.
-- First-party tools can be listed from manifests without custom Studio code per tool.
-- A user can register a local external tool path and see its capabilities before launching it.
-- No app imports implementation details directly from another app.
-- Legacy Builder functionality is either extracted, documented as compatibility-only, or archived.
+- ✅ `npm run dev` still has one obvious result: Agent Builder Studio at `http://localhost:3030`.
+- ✅ Studio has a dashboard at `/dashboard` showing tool status, dev command, permissions, and outputs. *(Project/graph-status/recent-runs panels omitted in v1 rather than mocked — no real source yet.)*
+- ✅ First-party tools (meetings/investments/cos) listed from manifests with zero per-tool Studio code.
+- ✅ A user can register a local external tool path and see its capabilities/permissions before launching it.
+- ✅ No app imports implementation details directly from another app (verified: zero cross-app imports).
+- ✅ Legacy Builder functionality documented as compatibility-only + inventoried (`docs/LEGACY_TRIAGE.md`); extraction/archival = v2.
