@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "agent-builder.tool.v1",
+  "id": "sample-external-cli",
+  "name": "Sample External CLI",
+  "description": "SAMPLE external CLI tool that lives outside apps/ and can be registered with Agent Builder Studio.",
+  "type": "cli",
+  "entry": {
+    "kind": "cli",
+    "path": "/Users/tyroneross/dev/git-folder/agent-builder-studio/examples/sample-external-tool",
+    "devCommand": "node examples/sample-external-tool/index.mjs"
+  },
+  "capabilities": ["sample-greeting", "text-summary"],
+  "inputs": [
+    { "id": "text", "type": "string", "required": false }
+  ],
+  "outputs": [
+    { "id": "summary", "type": "text" }
+  ],
+  "env": {
+    "required": [],
+    "optional": []
+  },
+  "permissions": {
+    "mode": "disclosure",
+    "filesystem": [],
+    "network": []
+  },
+  "compat": {
+    "node": ">=22.13",
+    "studio": "agent-builder.tool.v1"
+  }
+}
