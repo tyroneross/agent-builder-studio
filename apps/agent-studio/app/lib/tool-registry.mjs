@@ -10,6 +10,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { promises as fsp } from "node:fs";
+import { spawn } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 
@@ -46,6 +47,70 @@ export function findRepoRoot(startDir = process.cwd()) {
 
 function toolRegistryPath(repoRoot) {
   return path.join(repoRoot, REGISTRY_DIR_NAME, REGISTRY_FILE_NAME);
+}
+
+function emptyRegistryState() {
+  return { registered: [], runtime: {} };
+}
+
+function normalizeRegistryState(parsed) {
+  if (Array.isArray(parsed)) {
+    return { registered: parsed, runtime: {} };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return emptyRegistryState();
+  }
+  return {
+    registered: Array.isArray(parsed.registered) ? parsed.registered : [],
+    runtime:
+      parsed.runtime && typeof parsed.runtime === "object" && !Array.isArray(parsed.runtime)
+        ? parsed.runtime
+        : {},
+  };
+}
+
+async function readRegistryState(repoRoot) {
+  const filePath = toolRegistryPath(repoRoot);
+  let raw;
+  try {
+    raw = await fsp.readFile(filePath, "utf8");
+  } catch (err) {
+    if (err?.code === "ENOENT") return emptyRegistryState();
+    throw err;
+  }
+  try {
+    return normalizeRegistryState(JSON.parse(raw));
+  } catch {
+    return emptyRegistryState();
+  }
+}
+
+async function writeRegistryState(repoRoot, state) {
+  const filePath = toolRegistryPath(repoRoot);
+  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  await fsp.writeFile(
+    filePath,
+    `${JSON.stringify(normalizeRegistryState(state), null, 2)}\n`,
+    "utf8",
+  );
+}
+
+function isLivePid(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveTool(repoRoot, id) {
+  const [workspaceTools, registeredTools] = await Promise.all([
+    discoverWorkspaceTools(repoRoot),
+    readRegisteredTools(repoRoot),
+  ]);
+  return [...workspaceTools, ...registeredTools].find((tool) => tool.id === id) ?? null;
 }
 
 /**
@@ -85,27 +150,17 @@ export async function discoverWorkspaceTools(repoRoot) {
 
 /** Read the persisted list of externally-registered tools. `[]` if absent. */
 export async function readRegisteredTools(repoRoot) {
-  const filePath = toolRegistryPath(repoRoot);
-  let raw;
-  try {
-    raw = await fsp.readFile(filePath, "utf8");
-  } catch (err) {
-    if (err?.code === "ENOENT") return [];
-    throw err;
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  const state = await readRegistryState(repoRoot);
+  return state.registered;
 }
 
 /** Persist the list of externally-registered tools (creates the dir if missing). */
 export async function writeRegisteredTools(repoRoot, list) {
-  const filePath = toolRegistryPath(repoRoot);
-  await fsp.mkdir(path.dirname(filePath), { recursive: true });
-  await fsp.writeFile(filePath, `${JSON.stringify(list, null, 2)}\n`, "utf8");
+  const state = await readRegistryState(repoRoot);
+  await writeRegistryState(repoRoot, {
+    ...state,
+    registered: Array.isArray(list) ? list : [],
+  });
 }
 
 /**
@@ -147,6 +202,80 @@ export async function unregisterTool(repoRoot, id) {
 }
 
 /**
+ * Launch a registered or workspace tool by spawning its declared dev command.
+ * Runtime pid state is persisted alongside registered tools in the same
+ * .agent-studio/tool-registry.json file.
+ */
+export async function launchTool(repoRoot, id) {
+  const state = await readRegistryState(repoRoot);
+  const existingPid = state.runtime?.[id]?.pid;
+  if (isLivePid(existingPid)) {
+    return { ok: true, alreadyRunning: true, pid: existingPid };
+  }
+
+  const tool = await resolveTool(repoRoot, id);
+  if (!tool) {
+    return { ok: false, error: "tool not found" };
+  }
+  if (!tool.valid) {
+    return { ok: false, error: "tool manifest is invalid" };
+  }
+
+  const devCommand = tool?.manifest?.entry?.devCommand;
+  if (typeof devCommand !== "string" || devCommand.length === 0) {
+    return { ok: false, error: "tool devCommand is missing" };
+  }
+
+  const child = spawn(devCommand, {
+    cwd: repoRoot,
+    shell: true,
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+
+  const pid = child.pid;
+  const nextState = await readRegistryState(repoRoot);
+  await writeRegistryState(repoRoot, {
+    ...nextState,
+    runtime: {
+      ...nextState.runtime,
+      [id]: {
+        pid,
+        port: tool?.manifest?.entry?.port,
+        startedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  return { ok: true, pid };
+}
+
+/** Stop a tracked launched tool and clear its runtime pid state. */
+export async function stopTool(repoRoot, id) {
+  const state = await readRegistryState(repoRoot);
+  const runtime = state.runtime ?? {};
+  const pid = runtime[id]?.pid;
+  if (!pid) {
+    return { ok: true, notRunning: true };
+  }
+
+  try {
+    process.kill(pid);
+  } catch (err) {
+    if (err?.code !== "ESRCH") throw err;
+  }
+
+  const nextRuntime = { ...runtime };
+  delete nextRuntime[id];
+  await writeRegistryState(repoRoot, {
+    ...state,
+    runtime: nextRuntime,
+  });
+  return { ok: true };
+}
+
+/**
  * Best-effort TCP probe of a tool's declared port. Never throws; resolves
  * "running" | "stopped" within ~PROBE_TIMEOUT_MS.
  */
@@ -180,19 +309,22 @@ export function probeStatus(tool) {
 
 /**
  * Merge discovered workspace tools + registered external tools, annotating
- * each with a live `status` ("running" | "stopped") from a port probe.
+ * each with a live `status` ("running" | "stopped") from tracked pid state
+ * first and port probing as the fallback.
  */
 export async function listAllTools(repoRoot) {
-  const [workspaceTools, registeredTools] = await Promise.all([
+  const [workspaceTools, registryState] = await Promise.all([
     discoverWorkspaceTools(repoRoot),
-    readRegisteredTools(repoRoot),
+    readRegistryState(repoRoot),
   ]);
+  const registeredTools = registryState.registered;
+  const runtime = registryState.runtime ?? {};
 
   const merged = [...workspaceTools, ...registeredTools];
   return Promise.all(
     merged.map(async (tool) => ({
       ...tool,
-      status: await probeStatus(tool),
+      status: isLivePid(runtime[tool.id]?.pid) ? "running" : await probeStatus(tool),
     })),
   );
 }

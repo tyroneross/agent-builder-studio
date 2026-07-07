@@ -20,6 +20,8 @@ import {
   writeRegisteredTools,
   registerToolPath,
   unregisterTool,
+  launchTool,
+  stopTool,
   listAllTools,
 } from "../app/lib/tool-registry.mjs";
 
@@ -39,6 +41,14 @@ const MALFORMED_JSON_FIXTURE = path.join(TOOL_SPEC_FIXTURES, "malformed-json");
 
 async function makeTempRepoRoot() {
   return fsp.mkdtemp(path.join(os.tmpdir(), "tool-registry-test-"));
+}
+
+function registryFilePath(repoRoot) {
+  return path.join(repoRoot, ".agent-studio", "tool-registry.json");
+}
+
+async function readRegistryFile(repoRoot) {
+  return JSON.parse(await fsp.readFile(registryFilePath(repoRoot), "utf8"));
 }
 
 async function writeWorkspaceManifest(repoRoot, appName, manifest) {
@@ -65,6 +75,24 @@ function validManifest(id) {
     inputs: [],
     outputs: [],
   };
+}
+
+function isPidLive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPidExit(pid, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isPidLive(pid)) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(isPidLive(pid), false, `pid ${pid} should have exited`);
 }
 
 test("discoverWorkspaceTools finds apps/*/agent-tool.json manifests", async () => {
@@ -114,11 +142,10 @@ test("registerToolPath validates + persists a valid external fixture, and it sur
   assert.equal(reread[0].path, VALID_EXTERNAL_FIXTURE);
 
   // The persisted file itself exists at the expected, non-colliding path.
-  const registryFile = path.join(repoRoot, ".agent-studio", "tool-registry.json");
-  const raw = await fsp.readFile(registryFile, "utf8");
-  const parsed = JSON.parse(raw);
-  assert.equal(parsed.length, 1);
-  assert.equal(parsed[0].id, "external-cli-tool");
+  const parsed = await readRegistryFile(repoRoot);
+  assert.equal(parsed.registered.length, 1);
+  assert.equal(parsed.registered[0].id, "external-cli-tool");
+  assert.deepEqual(parsed.runtime, {});
 });
 
 test("registerToolPath dedupes by id on re-registration", async () => {
@@ -151,6 +178,20 @@ test("readRegisteredTools returns [] when the registry file is absent", async ()
   assert.deepEqual(list, []);
 });
 
+test("readRegisteredTools reads legacy bare-array registry files", async () => {
+  const repoRoot = await makeTempRepoRoot();
+  await fsp.mkdir(path.join(repoRoot, ".agent-studio"), { recursive: true });
+  await fsp.writeFile(
+    registryFilePath(repoRoot),
+    `${JSON.stringify([{ id: "legacy-tool" }], null, 2)}\n`,
+    "utf8",
+  );
+
+  const list = await readRegisteredTools(repoRoot);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].id, "legacy-tool");
+});
+
 test("unregisterTool removes a registered tool and persists the removal", async () => {
   const repoRoot = await makeTempRepoRoot();
   await registerToolPath(repoRoot, VALID_EXTERNAL_FIXTURE);
@@ -170,6 +211,9 @@ test("writeRegisteredTools creates .agent-studio/ if missing", async () => {
 
   const stat = await fsp.stat(path.join(repoRoot, ".agent-studio"));
   assert.ok(stat.isDirectory());
+  const parsed = await readRegistryFile(repoRoot);
+  assert.deepEqual(parsed.registered, [{ id: "x" }]);
+  assert.deepEqual(parsed.runtime, {});
 });
 
 test("listAllTools merges workspace + registered tools and annotates status", async () => {
@@ -184,4 +228,55 @@ test("listAllTools merges workspace + registered tools and annotates status", as
   for (const tool of tools) {
     assert.ok(["running", "stopped"].includes(tool.status));
   }
+});
+
+test("launchTool tracks a live pid, is idempotent, updates status, and stopTool clears runtime", async (t) => {
+  const repoRoot = await makeTempRepoRoot();
+  const manifest = validManifest("launcher-app");
+  manifest.entry.devCommand = `exec ${JSON.stringify(
+    process.execPath,
+  )} -e "setTimeout(() => {}, 60000)"`;
+  manifest.entry.port = 39998;
+  await writeWorkspaceManifest(repoRoot, "launcher-app", manifest);
+
+  let launchedPid = null;
+  t.after(async () => {
+    if (launchedPid && isPidLive(launchedPid)) {
+      try {
+        process.kill(launchedPid);
+      } catch {
+        // Best-effort cleanup only; the assertions below cover the normal stop path.
+      }
+      await waitForPidExit(launchedPid).catch(() => {});
+    }
+  });
+
+  const launch = await launchTool(repoRoot, "launcher-app");
+  assert.equal(launch.ok, true);
+  assert.equal(Number.isInteger(launch.pid), true);
+  launchedPid = launch.pid;
+  assert.equal(isPidLive(launch.pid), true);
+
+  let registry = await readRegistryFile(repoRoot);
+  assert.equal(registry.runtime["launcher-app"].pid, launch.pid);
+  assert.equal(registry.runtime["launcher-app"].port, 39998);
+  assert.match(registry.runtime["launcher-app"].startedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+  let tools = await listAllTools(repoRoot);
+  assert.equal(tools.find((tool) => tool.id === "launcher-app")?.status, "running");
+
+  const secondLaunch = await launchTool(repoRoot, "launcher-app");
+  assert.equal(secondLaunch.ok, true);
+  assert.equal(secondLaunch.alreadyRunning, true);
+  assert.equal(secondLaunch.pid, launch.pid);
+
+  const stop = await stopTool(repoRoot, "launcher-app");
+  assert.equal(stop.ok, true);
+  await waitForPidExit(launch.pid);
+
+  registry = await readRegistryFile(repoRoot);
+  assert.equal(registry.runtime["launcher-app"], undefined);
+
+  tools = await listAllTools(repoRoot);
+  assert.equal(tools.find((tool) => tool.id === "launcher-app")?.status, "stopped");
 });

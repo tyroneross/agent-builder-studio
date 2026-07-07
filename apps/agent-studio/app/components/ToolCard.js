@@ -7,18 +7,16 @@
 // declare a valid apps/<name>/agent-tool.json (or are registered by external
 // path) render automatically with zero changes to this component.
 //
-// v1 does not spawn tool processes. Instead of a "Launch" button that does
-// nothing, the card shows the manifest's devCommand as a copyable command
-// plus a best-effort running/stopped status dot (from the API's TCP probe of
-// entry.port). If spawn support lands later, this is the one place a real
-// Launch button would be wired in.
+// Studio can launch and stop tool dev commands through real API endpoints.
+// The manifest's devCommand remains copyable for users who prefer to run a
+// tool manually.
 //
 // F2 (Calm Precision, non-negotiable): permissions are declared by the tool
 // author in agent-tool.json — Studio does not sandbox, verify, or enforce
 // them. The permissions section is always labeled to say so; never rendered
 // as a bare "Permissions:" list that could read as a security guarantee.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
@@ -158,7 +156,14 @@ function StringList({ items }) {
 
 export default function ToolCard({ tool, onUnregistered }) {
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState(tool?.status ?? "stopped");
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState(null);
   const [unregisterError, setUnregisterError] = useState(null);
+
+  useEffect(() => {
+    setStatus(tool?.status ?? "stopped");
+  }, [tool?.status]);
 
   if (!tool) return null;
 
@@ -166,9 +171,52 @@ export default function ToolCard({ tool, onUnregistered }) {
   const entry = manifest?.entry ?? {};
   const env = manifest?.env ?? {};
   const permissions = manifest?.permissions ?? null;
+  const currentStatus = status === "running" ? "running" : "stopped";
+  const actionEndpoint = currentStatus === "running" ? "/api/tools/stop" : "/api/tools/launch";
+  const actionLabel = currentStatus === "running" ? "Stop" : "Launch";
+  const actionBusyLabel = currentStatus === "running" ? "Stopping..." : "Launching...";
+  const nextStatus = currentStatus === "running" ? "stopped" : "running";
+
+  async function refreshStatus() {
+    const res = await fetch("/api/tools/list", { cache: "no-store" });
+    const body = await res.json();
+    if (!body?.ok) {
+      throw new Error(body?.error || "status refresh failed");
+    }
+    const latest = Array.isArray(body.tools) ? body.tools.find((item) => item.id === tool.id) : null;
+    if (latest?.status) setStatus(latest.status);
+  }
+
+  async function handleToolAction() {
+    if (actionBusy || !entry.devCommand) return;
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const res = await fetch(actionEndpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: tool.id }),
+      });
+      const body = await res.json();
+      if (!body?.ok) {
+        setActionError(body?.error || `${actionLabel.toLowerCase()} failed`);
+        return;
+      }
+      setStatus(nextStatus);
+      try {
+        await refreshStatus();
+      } catch (err) {
+        setActionError(err?.message || "status refresh failed");
+      }
+    } catch (err) {
+      setActionError(err?.message || `${actionLabel.toLowerCase()} failed`);
+    } finally {
+      setActionBusy(false);
+    }
+  }
 
   async function handleUnregister() {
-    if (busy) return;
+    if (busy || actionBusy) return;
     setBusy(true);
     setUnregisterError(null);
     try {
@@ -205,7 +253,7 @@ export default function ToolCard({ tool, onUnregistered }) {
         </div>
         <div className="tc-head-meta">
           <span className={`tc-badge tc-badge-${tool.source}`}>{tool.source}</span>
-          <StatusDot status={tool.status} />
+          <StatusDot status={currentStatus} />
         </div>
       </header>
 
@@ -228,15 +276,27 @@ export default function ToolCard({ tool, onUnregistered }) {
           <section className="tc-section">
             <span className="tc-section-title">Dev command</span>
             <p className="tc-note">
-              Studio does not launch tools in v1 — copy the command and run it yourself, then
-              the status dot above will reflect it once the port responds.
+              Studio can launch this command. Copy it if you prefer to run the tool manually.
             </p>
             <div className="tc-cmd-row">
               <code className="tc-code tc-cmd" data-tool-card-dev-command>
                 {entry.devCommand || "no dev command declared"}
               </code>
               <CopyButton text={entry.devCommand} />
+              <button
+                type="button"
+                className={`tc-tool-action ${
+                  currentStatus === "running" ? "tc-tool-action-stop" : "tc-tool-action-launch"
+                }`}
+                onClick={handleToolAction}
+                disabled={actionBusy || !entry.devCommand}
+                data-tool-card-launch-stop
+                data-tool-card-action={currentStatus === "running" ? "stop" : "launch"}
+              >
+                {actionBusy ? actionBusyLabel : actionLabel}
+              </button>
             </div>
+            {actionError && <span className="tc-inline-error">{actionError}</span>}
             <div className="tc-meta-row">
               {typeof entry.port === "number" && <span>port {entry.port}</span>}
               {entry.healthPath && <span>health {entry.healthPath}</span>}
@@ -287,7 +347,7 @@ export default function ToolCard({ tool, onUnregistered }) {
             type="button"
             className="tc-text-action tc-danger"
             onClick={handleUnregister}
-            disabled={busy}
+            disabled={busy || actionBusy}
             data-tool-card-unregister
           >
             {busy ? "removing…" : "remove registration"}
@@ -423,9 +483,11 @@ export default function ToolCard({ tool, onUnregistered }) {
           display: flex;
           align-items: center;
           gap: 8px;
+          flex-wrap: wrap;
         }
         .tc-cmd {
           flex: 1;
+          min-width: 220px;
           overflow-x: auto;
           white-space: nowrap;
           padding: 6px 10px;
@@ -457,6 +519,32 @@ export default function ToolCard({ tool, onUnregistered }) {
         .tc-copy-btn:disabled {
           color: var(--faint);
           cursor: not-allowed;
+        }
+        .tc-tool-action {
+          flex-shrink: 0;
+          min-height: 32px;
+          padding: 0 12px;
+          border-radius: 6px;
+          border: 1px solid var(--accent);
+          background: var(--accent-soft);
+          color: var(--accent-strong);
+          font-size: 12px;
+          font-family: inherit;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .tc-tool-action:hover:not(:disabled) {
+          border-color: var(--accent-strong);
+        }
+        .tc-tool-action:disabled {
+          border-color: var(--border);
+          color: var(--faint);
+          cursor: not-allowed;
+        }
+        .tc-tool-action-stop {
+          border-color: var(--danger);
+          background: var(--danger-soft);
+          color: var(--danger);
         }
         .tc-meta-row {
           display: flex;
@@ -575,6 +663,13 @@ export default function ToolCard({ tool, onUnregistered }) {
           color: var(--danger);
         }
         @media (max-width: 640px) {
+          .tc-cmd {
+            min-width: 100%;
+          }
+          .tc-copy-btn,
+          .tc-tool-action {
+            min-height: 40px;
+          }
           .tc-io-grid,
           .tc-permissions-grid {
             grid-template-columns: 1fr;
