@@ -31,7 +31,7 @@
     "test:investments": "npm test --workspace investments",
     "test:cos": "npm test --workspace cos",
     "test:chief-of-staff": "npm test --workspace chief-of-staff",
-    "test:studio": "cd apps/agent-studio && npm run test:roundtrip && npm run test:no-hardcoded-storage && npm run test:doc-ingest && npm run test:models-filter && npm run test:schema && npm run test:full-package",
+    "test:studio": "cd apps/agent-studio && npm run test:roundtrip && npm run test:no-hardcoded-storage && npm run test:doc-ingest && npm run test:models-filter && npm run test:schema && npm run test:full-package && npm run test:tool-registry && npm run test:local-request",
     "test:studio:live": "npm run test:self --workspace agent-studio",
     "test": "npm run test:packages && npm run test:agent-builder && npm run test:meetings && npm run test:investments && npm run test:cos && npm run test:chief-of-staff && npm run test:studio",
     "test:live": "npm run test && npm run test:studio:live"

@@ -435,6 +435,21 @@ function verifyRuntimePidIdentity(entry) {
     return { ok: false };
   }
 
+  // Tighten beyond the bare binary name: a generic basename like "node" or "npm"
+  // matches any same-runtime process, so for multi-token commands also require a
+  // distinctive later argument (script path / workspace name) to appear. This
+  // stops a recycled pid held by an unrelated node/npm process from passing
+  // identity on the ±15s window alone.
+  if (Array.isArray(entry.argv) && entry.argv.length > 1) {
+    const distinctive = entry.argv
+      .slice(1)
+      .map((token) => path.basename(String(token)))
+      .filter((token) => token.length > 0);
+    if (distinctive.length > 0 && !distinctive.some((token) => command.includes(token))) {
+      return { ok: false };
+    }
+  }
+
   return { ok: true };
 }
 

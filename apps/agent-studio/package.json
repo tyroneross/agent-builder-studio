@@ -13,7 +13,9 @@
     "test:full-package": "node scripts/test-full-package.mjs",
     "test:no-hardcoded-storage": "node scripts/test-no-hardcoded-storage.mjs",
     "test:doc-ingest": "node scripts/test-doc-ingest.mjs",
-    "test:models-filter": "node scripts/test-models-filter.mjs"
+    "test:models-filter": "node scripts/test-models-filter.mjs",
+    "test:tool-registry": "node --test scripts/test-tool-registry.mjs",
+    "test:local-request": "node --test scripts/test-local-request.mjs"
   },
   "dependencies": {
     "@tyroneross/agent-artifacts": "*",
