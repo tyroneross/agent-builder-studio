@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "agent-builder.tool.v1",
+  "id": "cos",
+  "name": "Chief of Staff",
+  "description": "Chief of Staff — local scheduling/briefing UI + runner that cascades across local (Ollama) and cloud (Groq/Anthropic/OpenAI) models. Extracted from the agent-builder workbench into its own app.",
+  "type": "workflow-app",
+  "entry": {
+    "kind": "next-app",
+    "workspace": "apps/cos",
+    "devCommand": "npm run dev --workspace cos",
+    "port": 3034,
+    "healthPath": "/"
+  },
+  "capabilities": ["env-status", "model-list", "sample-schedule", "briefing-run"],
+  "inputs": [
+    { "id": "schedule", "type": "string", "required": false },
+    { "id": "goals", "type": "string", "required": false },
+    { "id": "feedback", "type": "string", "required": false },
+    { "id": "model", "type": "string", "required": false }
+  ],
+  "outputs": [
+    { "id": "env-status", "type": "json" },
+    { "id": "models", "type": "json" },
+    { "id": "sample-schedule", "type": "text" },
+    { "id": "briefing-events", "type": "stream" }
+  ],
+  "env": {
+    "required": [],
+    "optional": [
+      { "name": "OLLAMA_BASE_URL", "default": "http://localhost:11434", "description": "Base URL for the local Ollama server used for the local model-cascade lane and model listing." },
+      { "name": "OLLAMA_MODEL", "description": "Override the default local Ollama model used by the run-chief-of-staff.mjs CLI script. No default — cascade picks a per-node default when unset." },
+      { "name": "GROQ_API_KEY", "description": "Cloud lane 1 (Groq, primary cloud provider) for the run cascade. Absent = cloud lane skipped, local Ollama only." },
+      { "name": "ANTHROPIC_API_KEY", "description": "Cloud lane 2 (Anthropic) for the run cascade. Absent = lane disabled." },
+      { "name": "OPENAI_API_KEY", "description": "Cloud lane 3 (OpenAI) for the run cascade. Absent = lane disabled." },
+      { "name": "COS_ALLOW_CLOUD", "description": "Gate for allowing cloud-lane fallback during a run (same semantics as the --allow-cloud CLI flag). No default — cloud is off unless set." },
+      { "name": "COS_MAX_CLOUD_TOKENS", "description": "Caps cloud-lane token usage per run (same semantics as the --max-cloud-tokens CLI flag). No default cap unless set." },
+      { "name": "AGENT_BUILDER_LLM_TIMEOUT_MS", "default": "900000", "description": "Per-model-call timeout in milliseconds, used by the run-chief-of-staff.mjs CLI script." }
+    ]
+  },
+  "permissions": {
+    "mode": "disclosure",
+    "filesystem": [
+      "read: sample schedule input file"
+    ],
+    "network": [
+      "http://localhost:11434 (Ollama: local model cascade + model listing)",
+      "Groq API (cloud lane 1, key-gated)",
+      "Anthropic API (cloud lane 2, key-gated)",
+      "OpenAI API (cloud lane 3, key-gated)"
+    ]
+  },
+  "compat": {
+    "node": ">=22.13",
+    "studio": "agent-builder.tool.v1"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "agent-builder.tool.v1",
+  "id": "investments",
+  "name": "Investment Review",
+  "description": "Investment review — materials intake, claim research/validation against source documents, and a local review/folder-log store. Extracted from the agent-builder workbench into its own app.",
+  "type": "workflow-app",
+  "entry": {
+    "kind": "next-app",
+    "workspace": "apps/investments",
+    "devCommand": "npm run dev --workspace investments",
+    "port": 3033,
+    "healthPath": "/"
+  },
+  "capabilities": ["material-intake", "claim-validation", "review-store", "folder-log"],
+  "inputs": [
+    { "id": "materials", "type": "file", "required": false },
+    { "id": "claims", "type": "json", "required": true }
+  ],
+  "outputs": [
+    { "id": "validation", "type": "json" },
+    { "id": "review", "type": "markdown" },
+    { "id": "folder-log", "type": "markdown" }
+  ],
+  "permissions": {
+    "mode": "disclosure",
+    "filesystem": [
+      "read/write: process.cwd() (review + folder-log markdown/json output)"
+    ],
+    "network": []
+  },
+  "compat": {
+    "node": ">=22.13",
+    "studio": "agent-builder.tool.v1"
+  }
+}
