@@ -11,6 +11,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { promises as fsp } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import net from "node:net";
 import path from "node:path";
 
@@ -22,9 +23,13 @@ import {
 
 const REGISTRY_DIR_NAME = ".agent-studio";
 const REGISTRY_FILE_NAME = "tool-registry.json";
+const GIT_CACHE_DIR_NAME = "git-cache";
 const MANIFEST_FILENAME = "agent-tool.json";
 const PROBE_TIMEOUT_MS = 300;
+const GIT_CLONE_TIMEOUT_MS = 60_000;
 const SHELL_METACHAR_PATTERN = /[;|&$`<>(){}]/;
+const GIT_URL_SHELL_METACHAR_PATTERN = /[\s;|&$`<>(){}\\'"]/;
+const LOCAL_GIT_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
 
 let registryMutationLock = Promise.resolve();
 
@@ -168,13 +173,43 @@ function isContainedPath(childPath, parentPath) {
   return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
-function commandPolicy(repoRoot, tool) {
-  const firstToken = firstDevCommandToken(tool?.manifest?.entry?.devCommand);
+function isLikelyPathArgument(arg) {
+  if (typeof arg !== "string" || arg.length === 0) return false;
+  if (arg.startsWith("-")) return false;
+  return (
+    path.isAbsolute(arg) ||
+    arg.startsWith(".") ||
+    arg.includes("/") ||
+    arg.includes("\\") ||
+    /\.(?:cjs|mjs|js|jsx|ts|tsx|json|sh|py|rb|pl|php|jar|wasm)$/i.test(arg)
+  );
+}
+
+function gitCommandPathPolicy(parsedCommand, launchDirectory) {
+  for (const arg of parsedCommand.args ?? []) {
+    if (!isLikelyPathArgument(arg)) continue;
+    const candidate = path.isAbsolute(arg)
+      ? path.resolve(arg)
+      : path.resolve(launchDirectory, arg);
+    if (!isContainedPath(candidate, launchDirectory)) {
+      return {
+        ok: false,
+        error: "git-sourced tool devCommand paths must stay within the cloned tool directory",
+      };
+    }
+  }
+  return { ok: true };
+}
+
+function commandPolicy(repoRoot, tool, parsedCommand = null) {
+  const firstToken =
+    parsedCommand?.command ?? firstDevCommandToken(tool?.manifest?.entry?.devCommand);
   const isAllowlistedBinary = ENFORCED_BINARY_ALLOWLIST.includes(firstToken);
+  const launchDirectory = toolLaunchDirectory(repoRoot, tool);
   const isContainedAbsolutePath =
-    path.isAbsolute(firstToken) &&
-    isContainedPath(path.resolve(firstToken), toolLaunchDirectory(repoRoot, tool));
+    path.isAbsolute(firstToken) && isContainedPath(path.resolve(firstToken), launchDirectory);
   const mode = permissionMode(tool);
+  const isGitSource = tool?.source === "git";
   const allowedForEnforced = isAllowlistedBinary || isContainedAbsolutePath;
 
   if (mode === "enforced" && !allowedForEnforced) {
@@ -183,12 +218,269 @@ function commandPolicy(repoRoot, tool) {
       error: "enforced tool devCommand must start with an allowed binary or contained absolute path",
     };
   }
+  if (isGitSource) {
+    const pathPolicy = gitCommandPathPolicy(parsedCommand ?? { args: [] }, launchDirectory);
+    if (!pathPolicy.ok) return pathPolicy;
+  }
 
   return {
     ok: true,
     mode,
-    requiresConfirmation: mode === "enforced" || !isAllowlistedBinary,
+    requiresConfirmation: isGitSource || mode === "enforced" || !isAllowlistedBinary,
   };
+}
+
+function normalizeUrlHostname(hostname) {
+  return hostname.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
+}
+
+function parseIpv4Octets(hostname) {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return null;
+  const octets = parts.map((part) => {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const value = Number(part);
+    return Number.isInteger(value) && value >= 0 && value <= 255 ? value : null;
+  });
+  return octets.every((part) => part !== null) ? octets : null;
+}
+
+function parseIpv4MappedIpv6Octets(hostname) {
+  const lower = normalizeUrlHostname(hostname);
+  if (!lower.startsWith("::ffff:")) return null;
+
+  const tail = lower.slice("::ffff:".length);
+  if (tail.includes(".")) return parseIpv4Octets(tail);
+
+  const parts = tail.split(":");
+  if (parts.length !== 2) return null;
+  const words = parts.map((part) => {
+    if (!/^[0-9a-f]{1,4}$/i.test(part)) return null;
+    return Number.parseInt(part, 16);
+  });
+  if (words.some((word) => word === null || word < 0 || word > 0xffff)) return null;
+  return [(words[0] >> 8) & 0xff, words[0] & 0xff, (words[1] >> 8) & 0xff, words[1] & 0xff];
+}
+
+function isLocalOrPrivateIpv4(octets) {
+  const [a, b] = octets;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168)
+  );
+}
+
+function isLocalOrPrivateIpv6(hostname) {
+  const lower = normalizeUrlHostname(hostname);
+  return (
+    lower === "::" ||
+    lower === "::1" ||
+    lower.startsWith("fe8") ||
+    lower.startsWith("fe9") ||
+    lower.startsWith("fea") ||
+    lower.startsWith("feb") ||
+    lower.startsWith("fc") ||
+    lower.startsWith("fd")
+  );
+}
+
+function rawHostnameLooksNumericIp(rawUrl) {
+  const match = rawUrl.match(/^[a-z][a-z0-9+.-]*:\/\/([^/?#]+)/i);
+  if (!match) return false;
+  let authority = match[1];
+  if (authority.includes("@")) authority = authority.slice(authority.lastIndexOf("@") + 1);
+  if (authority.startsWith("[")) return false;
+  const hostname = authority.split(":")[0].toLowerCase();
+  return /^\d+$/.test(hostname) || /^0x[0-9a-f]+$/i.test(hostname);
+}
+
+function isLocalOrPrivateIpHostname(hostname) {
+  const normalized = normalizeUrlHostname(hostname);
+  const mapped = parseIpv4MappedIpv6Octets(normalized);
+  if (mapped) return isLocalOrPrivateIpv4(mapped);
+
+  const ipVersion = net.isIP(normalized);
+  if (ipVersion === 4) {
+    const octets = parseIpv4Octets(normalized);
+    return octets ? isLocalOrPrivateIpv4(octets) : false;
+  }
+  if (ipVersion === 6) return isLocalOrPrivateIpv6(normalized);
+  return false;
+}
+
+export function validateGitToolUrl(rawUrl) {
+  if (typeof rawUrl !== "string" || rawUrl.length === 0) {
+    return { ok: false, error: "git URL required" };
+  }
+  if (rawUrl !== rawUrl.trim()) {
+    return { ok: false, error: "git URL must not contain leading or trailing whitespace" };
+  }
+  if (rawUrl.startsWith("-")) {
+    return { ok: false, error: "git URL must be an https URL" };
+  }
+  if (rawUrl.includes("--upload-pack")) {
+    return { ok: false, error: "git URL contains unsupported git transport options" };
+  }
+  if (GIT_URL_SHELL_METACHAR_PATTERN.test(rawUrl)) {
+    return { ok: false, error: "git URL contains unsupported shell metacharacters" };
+  }
+
+  let decodedUrl;
+  try {
+    decodedUrl = decodeURIComponent(rawUrl);
+  } catch {
+    return { ok: false, error: "git URL contains invalid percent-encoding" };
+  }
+  if (decodedUrl !== rawUrl && GIT_URL_SHELL_METACHAR_PATTERN.test(decodedUrl)) {
+    return { ok: false, error: "git URL contains encoded shell metacharacters" };
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { ok: false, error: "git URL must be a valid https URL" };
+  }
+
+  if (parsed.protocol !== "https:") {
+    return { ok: false, error: "git URL must use https://" };
+  }
+  if (!parsed.hostname) {
+    return { ok: false, error: "git URL must include a host" };
+  }
+  if (rawHostnameLooksNumericIp(rawUrl) || isLocalOrPrivateIpHostname(parsed.hostname)) {
+    return { ok: false, error: "git URL host must not be a local, private, or link-local IP" };
+  }
+  if (LOCAL_GIT_HOSTNAMES.has(parsed.hostname.toLowerCase())) {
+    return { ok: false, error: "git URL must point to a remote host" };
+  }
+  if (parsed.username || parsed.password) {
+    return { ok: false, error: "git URL credentials are not supported" };
+  }
+  if (parsed.search || parsed.hash) {
+    return { ok: false, error: "git URL query strings and fragments are not supported" };
+  }
+  if (!parsed.pathname || parsed.pathname === "/") {
+    return { ok: false, error: "git URL must include a repository path" };
+  }
+
+  // Residual accepted risk: this rejects literal private/local IPs but does
+  // not resolve DNS, so DNS rebinding is not detected during registration.
+  return { ok: true, url: parsed.href };
+}
+
+function gitCacheSlug(validatedGitUrl) {
+  const parsed = new URL(validatedGitUrl);
+  const base = `${parsed.hostname}${parsed.pathname.replace(/\.git$/i, "")}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  const hash = crypto.createHash("sha256").update(validatedGitUrl).digest("hex").slice(0, 12);
+  return `${base || "repo"}-${hash}`;
+}
+
+function gitCloneArgv(gitUrl, targetDir) {
+  return ["clone", "--depth", "1", "--filter=blob:limit=10m", gitUrl, targetDir];
+}
+
+function cloneGitRepository({
+  gitUrl,
+  targetDir,
+  argv = gitCloneArgv(gitUrl, targetDir),
+  timeoutMs = GIT_CLONE_TIMEOUT_MS,
+}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", argv, {
+      shell: false,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+
+    let settled = false;
+    let timedOut = false;
+    let timer;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
+    timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
+
+    let stderr = "";
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk;
+      if (stderr.length > 8_000) stderr = stderr.slice(-8_000);
+    });
+    child.once("error", (err) => {
+      finish(reject, err);
+    });
+    child.once("close", (code) => {
+      if (timedOut) {
+        finish(reject, new Error(`git clone timed out after ${timeoutMs}ms`));
+        return;
+      }
+      if (code === 0) {
+        finish(resolve);
+        return;
+      }
+      finish(reject, new Error(`git clone failed${stderr.trim() ? `: ${stderr.trim()}` : ""}`));
+    });
+  });
+}
+
+async function persistRegisteredTool(repoRoot, tool) {
+  const state = await readRegistryState(repoRoot);
+  const deduped = state.registered.filter((t) => t.id !== tool.id);
+  deduped.push(tool);
+  await writeRegistryState(repoRoot, {
+    ...state,
+    registered: deduped,
+  });
+}
+
+function forceGitManifestPermissions(manifest) {
+  return {
+    ...manifest,
+    permissions: {
+      ...(manifest.permissions ?? {}),
+      mode: "enforced",
+    },
+  };
+}
+
+async function registerToolPathUnlocked(repoRoot, absPath, overrides = {}, opts = {}) {
+  const loaded = loadToolManifest(absPath);
+  const { errors } = loaded;
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+  const manifest =
+    typeof opts.manifestTransform === "function"
+      ? opts.manifestTransform(loaded.manifest)
+      : loaded.manifest;
+
+  const tool = {
+    id: manifest.id,
+    name: manifest.name,
+    manifest,
+    source: "external",
+    valid: true,
+    errors: [],
+    path: absPath,
+    ...overrides,
+  };
+
+  await persistRegisteredTool(repoRoot, tool);
+  return { ok: true, tool };
 }
 
 /**
@@ -250,32 +542,42 @@ export async function writeRegisteredTools(repoRoot, list) {
  * dedupes by manifest id and persists.
  */
 export async function registerToolPath(repoRoot, absPath) {
-  const { manifest, errors } = loadToolManifest(absPath);
-  if (errors.length > 0) {
-    return { ok: false, errors };
-  }
+  return withRegistryMutationLock(() => registerToolPathUnlocked(repoRoot, absPath));
+}
 
-  const tool = {
-    id: manifest.id,
-    name: manifest.name,
-    manifest,
-    source: "external",
-    valid: true,
-    errors: [],
-    path: absPath,
-  };
+export async function registerToolFromGit(repoRoot, gitUrl, opts = {}) {
+  return withRegistryMutationLock(async () => {
+    const validation = validateGitToolUrl(gitUrl);
+    if (!validation.ok) {
+      return { ok: false, error: validation.error };
+    }
 
-  await withRegistryMutationLock(async () => {
-    const state = await readRegistryState(repoRoot);
-    const deduped = state.registered.filter((t) => t.id !== manifest.id);
-    deduped.push(tool);
-    await writeRegistryState(repoRoot, {
-      ...state,
-      registered: deduped,
-    });
+    const targetDir = path.join(
+      repoRoot,
+      REGISTRY_DIR_NAME,
+      GIT_CACHE_DIR_NAME,
+      gitCacheSlug(validation.url),
+    );
+    const argv = gitCloneArgv(validation.url, targetDir);
+    await fsp.mkdir(path.dirname(targetDir), { recursive: true });
+    await fsp.rm(targetDir, { recursive: true, force: true });
+
+    const clone = opts.clone ?? cloneGitRepository;
+    await clone({ gitUrl: validation.url, targetDir, argv, timeoutMs: opts.cloneTimeoutMs });
+
+    return registerToolPathUnlocked(
+      repoRoot,
+      targetDir,
+      {
+        source: "git",
+        origin: {
+          type: "git",
+          url: validation.url,
+        },
+      },
+      { manifestTransform: forceGitManifestPermissions },
+    );
   });
-
-  return { ok: true, tool };
 }
 
 /** Remove a registered external tool by id and persist. */
@@ -318,7 +620,7 @@ export async function launchTool(repoRoot, id, opts = {}) {
       return { ok: false, error: parsedCommand.error };
     }
 
-    const policy = commandPolicy(repoRoot, tool);
+    const policy = commandPolicy(repoRoot, tool, parsedCommand);
     if (!policy.ok) {
       return { ok: false, error: policy.error };
     }
