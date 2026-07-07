@@ -587,7 +587,12 @@ export default function ToolCard({ tool, onUnregistered }) {
         }
         .tc-copy-btn {
           flex-shrink: 0;
+          min-height: 24px;
           height: 28px;
+          box-sizing: border-box;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
           padding: 0 10px;
           border-radius: 6px;
           border: 1px solid var(--border);

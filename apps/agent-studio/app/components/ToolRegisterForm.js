@@ -150,8 +150,8 @@ export default function ToolRegisterForm({ onRegistered }) {
           padding: 0 16px;
           border-radius: 8px;
           border: 1px solid var(--accent);
-          background: var(--accent-soft);
-          color: var(--accent-strong);
+          background: var(--accent);
+          color: #ffffff;
           font-size: 13px;
           font-weight: 600;
           font-family: inherit;
@@ -160,7 +160,7 @@ export default function ToolRegisterForm({ onRegistered }) {
         .trf-submit:disabled {
           border-color: var(--border);
           background: var(--surface);
-          color: var(--faint);
+          color: var(--muted);
           cursor: not-allowed;
         }
         .trf-error {
