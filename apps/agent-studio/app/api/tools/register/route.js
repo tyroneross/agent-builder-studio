@@ -10,6 +10,7 @@
 
 import path from "node:path";
 
+import { assertLocalRequest } from "../../../lib/local-request.mjs";
 import { findRepoRoot, registerToolPath } from "../../../lib/tool-registry.mjs";
 
 export const runtime = "nodejs";
@@ -17,51 +18,11 @@ export const runtime = "nodejs";
 // Same path allowlist as app/api/fs/list/route.js. Keep duplicated here
 // because this security fix is scoped to api/tools/* ownership.
 const PERMITTED_PREFIXES = ["/Users/", "/tmp/", "/var/folders/"];
-const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 
 function isPermitted(absolute) {
   return PERMITTED_PREFIXES.some(
     (prefix) => absolute.startsWith(prefix) || absolute + "/" === prefix,
   );
-}
-
-function localHostname(hostname) {
-  return hostname.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
-}
-
-function isLocalHostname(hostname) {
-  return LOCAL_HOSTNAMES.has(localHostname(hostname));
-}
-
-function parseHost(host) {
-  try {
-    return new URL(`http://${host}`);
-  } catch {
-    return null;
-  }
-}
-
-function assertLocalRequest(request) {
-  const host = request.headers.get("host") || new URL(request.url).host;
-  const hostUrl = parseHost(host);
-  if (!hostUrl || !isLocalHostname(hostUrl.hostname)) {
-    return Response.json({ ok: false, error: "local request required" }, { status: 403 });
-  }
-
-  const origin = request.headers.get("origin");
-  if (!origin) return null;
-
-  let originUrl;
-  try {
-    originUrl = new URL(origin);
-  } catch {
-    return Response.json({ ok: false, error: "same-origin request required" }, { status: 403 });
-  }
-
-  if (!isLocalHostname(originUrl.hostname) || originUrl.host !== hostUrl.host) {
-    return Response.json({ ok: false, error: "same-origin request required" }, { status: 403 });
-  }
-  return null;
 }
 
 export async function POST(request) {
