@@ -96,7 +96,7 @@ test("buildInvestmentFolderLogMarkdown summarizes material file changes", () => 
   assert.match(markdown, /https:\/\/www\.w3\.org\/TR\/FileAPI\//);
 });
 
-test("saveInvestmentReview writes only under the repo-local review folder", async () => {
+test("saveInvestmentReview stages a repo-local review artifact", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-builder-investment-"));
   try {
     const result = await saveInvestmentReview({
@@ -106,16 +106,35 @@ test("saveInvestmentReview writes only under the repo-local review folder", asyn
       notes: "Verify financial metrics.",
     }, { root, createdAt: "2026-05-16T00:00:00.000Z" });
 
-    assert.equal(result.relativePath, "agent-outputs/investment-opportunity-agent/reviews/2026-05-16T00-00-00-000Z-irys-legal-ai.md");
+    assert.equal(result.relativePath, ".artifacts/agent/investment-review-2026-05-16t00-00-00-000z-irys-legal-ai/reviews/2026-05-16T00-00-00-000Z-irys-legal-ai.md");
     const written = await readFile(join(root, result.relativePath), "utf8");
+    const registry = JSON.parse(await readFile(join(root, ".artifacts/registry.json"), "utf8"));
     assert.match(written, /Irys Legal AI Investment Review/);
     assert.match(written, /Verify financial metrics/);
+    assert.equal(registry.artifacts[0].id, "agent:investment-review-2026-05-16t00-00-00-000z-irys-legal-ai");
+    assert.equal(registry.artifacts[0].meta.kind, "investment-review");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("saveInvestmentFolderLog writes markdown and JSON folder logs", async () => {
+test("saveInvestmentReview sanitizes staged artifact path segments", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-builder-investment-safe-path-"));
+  try {
+    const result = await saveInvestmentReview({
+      company: "../Bad Deal",
+      notes: "Check path handling.",
+    }, { root, createdAt: "../../2026/05/16" });
+
+    assert.equal(result.relativePath, ".artifacts/agent/investment-review-2026-05-16-bad-deal/reviews/2026-05-16-bad-deal.md");
+    assert.doesNotMatch(result.relativePath, /\.\./);
+    assert.match(await readFile(join(root, result.relativePath), "utf8"), /Check path handling/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("saveInvestmentFolderLog stages markdown and JSON folder log artifacts", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-builder-investment-folder-"));
   try {
     const result = await saveInvestmentFolderLog({
@@ -131,12 +150,16 @@ test("saveInvestmentFolderLog writes markdown and JSON folder logs", async () =>
       }],
     }, { root, createdAt: "2026-05-16T00:00:00.000Z" });
 
-    assert.equal(result.relativePath, "agent-outputs/investment-opportunity-agent/folder-logs/2026-05-16T00-00-00-000Z-irys-diligence.md");
-    assert.equal(result.relativeJsonPath, "agent-outputs/investment-opportunity-agent/folder-logs/2026-05-16T00-00-00-000Z-irys-diligence.json");
+    assert.equal(result.relativePath, ".artifacts/agent/investment-folder-log-2026-05-16t00-00-00-000z-irys-diligence/folder-logs/2026-05-16T00-00-00-000Z-irys-diligence.md");
+    assert.equal(result.relativeJsonPath, ".artifacts/agent/investment-folder-log-2026-05-16t00-00-00-000z-irys-diligence/folder-logs/2026-05-16T00-00-00-000Z-irys-diligence.json");
     const written = await readFile(join(root, result.relativePath), "utf8");
     const writtenJson = JSON.parse(await readFile(join(root, result.relativeJsonPath), "utf8"));
+    const registry = JSON.parse(await readFile(join(root, ".artifacts/registry.json"), "utf8"));
     assert.match(written, /Irys Diligence Folder Change Log/);
     assert.equal(writtenJson.schemaVersion, "agent-builder.investment-folder-log.v1");
+    assert.equal(registry.artifacts[0].id, "agent:investment-folder-log-2026-05-16t00-00-00-000z-irys-diligence");
+    assert.equal(registry.artifacts[0].fileCount, 2);
+    assert.equal(registry.artifacts[0].meta.kind, "investment-folder-log");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

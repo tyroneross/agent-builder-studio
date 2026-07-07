@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, relative, resolve, sep } from "node:path";
+import { stageArtifact } from "@tyroneross/agent-artifacts";
+import { join, relative, resolve, sep } from "node:path";
 
 export function investmentSlug(value) {
   return String(value ?? "investment-opportunity")
@@ -202,15 +202,27 @@ function formatFolderRow(file = {}) {
 export async function saveInvestmentReview(review = {}, options = {}) {
   const root = resolve(options.root ?? process.cwd());
   const createdAt = options.createdAt ?? new Date().toISOString();
-  const timestamp = createdAt.replace(/[:.]/g, "-");
+  const timestamp = artifactTimestamp(createdAt);
   const slug = investmentSlug(review.company);
-  const outputRoot = resolve(root, "agent-outputs", "investment-opportunity-agent", "reviews");
-  const target = resolve(outputRoot, `${timestamp}-${slug}.md`);
-
-  assertInside(root, target);
-  await mkdir(dirname(target), { recursive: true });
+  const filePath = `reviews/${timestamp}-${slug}.md`;
   const markdown = buildInvestmentReviewMarkdown(review, { createdAt });
-  await writeFile(target, markdown, "utf8");
+  const entry = await stageArtifact(root, {
+    type: "agent",
+    name: `investment-review-${timestamp}-${slug}`,
+    files: [{ path: filePath, content: markdown }],
+    meta: {
+      app: "investments",
+      agent: "investment-opportunity-agent",
+      kind: "investment-review",
+      schema: "agent-builder.investment-review.v1",
+      createdAt,
+      company: review.company || "Untitled opportunity",
+      legacyPath: `agent-outputs/investment-opportunity-agent/reviews/${timestamp}-${slug}.md`,
+    },
+    now: createdAt,
+  });
+  const target = join(entry.dir, filePath);
+  assertInside(root, target);
 
   return {
     path: target,
@@ -222,15 +234,10 @@ export async function saveInvestmentReview(review = {}, options = {}) {
 export async function saveInvestmentFolderLog(log = {}, options = {}) {
   const root = resolve(options.root ?? process.cwd());
   const createdAt = options.createdAt ?? log.createdAt ?? new Date().toISOString();
-  const timestamp = createdAt.replace(/[:.]/g, "-");
+  const timestamp = artifactTimestamp(createdAt);
   const slug = investmentSlug(log.folderName || "selected-folder");
-  const outputRoot = resolve(root, "agent-outputs", "investment-opportunity-agent", "folder-logs");
-  const markdownTarget = resolve(outputRoot, `${timestamp}-${slug}.md`);
-  const jsonTarget = resolve(outputRoot, `${timestamp}-${slug}.json`);
-
-  assertInside(root, markdownTarget);
-  assertInside(root, jsonTarget);
-  await mkdir(dirname(markdownTarget), { recursive: true });
+  const markdownPath = `folder-logs/${timestamp}-${slug}.md`;
+  const jsonPath = `folder-logs/${timestamp}-${slug}.json`;
 
   const normalizedLog = {
     ...log,
@@ -238,8 +245,31 @@ export async function saveInvestmentFolderLog(log = {}, options = {}) {
     schemaVersion: log.schemaVersion || "agent-builder.investment-folder-log.v1",
   };
   const markdown = buildInvestmentFolderLogMarkdown(normalizedLog, { createdAt });
-  await writeFile(jsonTarget, `${JSON.stringify(normalizedLog, null, 2)}\n`, "utf8");
-  await writeFile(markdownTarget, markdown, "utf8");
+  const entry = await stageArtifact(root, {
+    type: "agent",
+    name: `investment-folder-log-${timestamp}-${slug}`,
+    files: [
+      { path: jsonPath, content: `${JSON.stringify(normalizedLog, null, 2)}\n` },
+      { path: markdownPath, content: markdown },
+    ],
+    meta: {
+      app: "investments",
+      agent: "investment-opportunity-agent",
+      kind: "investment-folder-log",
+      schema: "agent-builder.investment-folder-log.v1",
+      createdAt,
+      folderName: normalizedLog.folderName || "Selected folder",
+      legacyPaths: {
+        markdown: `agent-outputs/investment-opportunity-agent/folder-logs/${timestamp}-${slug}.md`,
+        json: `agent-outputs/investment-opportunity-agent/folder-logs/${timestamp}-${slug}.json`,
+      },
+    },
+    now: createdAt,
+  });
+  const markdownTarget = join(entry.dir, markdownPath);
+  const jsonTarget = join(entry.dir, jsonPath);
+  assertInside(root, markdownTarget);
+  assertInside(root, jsonTarget);
 
   return {
     path: markdownTarget,
@@ -255,6 +285,13 @@ function yamlScalar(value) {
   const text = String(value ?? "");
   if (/^[a-zA-Z0-9_.:/ -]+$/.test(text) && !text.includes("#")) return text;
   return JSON.stringify(text);
+}
+
+function artifactTimestamp(value) {
+  return String(value ?? "")
+    .replace(/[:.]/g, "-")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "created-at";
 }
 
 function assertInside(root, target) {
