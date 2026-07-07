@@ -9,6 +9,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -40,6 +41,23 @@ const TOOL_SPEC_FIXTURES = path.resolve(
 const VALID_EXTERNAL_FIXTURE = path.join(TOOL_SPEC_FIXTURES, "valid-external");
 const MALFORMED_JSON_FIXTURE = path.join(TOOL_SPEC_FIXTURES, "malformed-json");
 
+const ORIGINAL_PATH = process.env.PATH ?? "";
+const FAKE_PS_DIR = await fsp.mkdtemp(path.join(os.tmpdir(), "tool-registry-fake-ps-"));
+await fsp.writeFile(
+  path.join(FAKE_PS_DIR, "ps"),
+  `#!/usr/bin/env node
+const map = JSON.parse(process.env.TOOL_REGISTRY_TEST_PS_JSON || "{}");
+const pidIndex = process.argv.indexOf("-p");
+const pid = pidIndex >= 0 ? process.argv[pidIndex + 1] : "";
+const entry = map[pid];
+if (!entry) process.exit(1);
+process.stdout.write(entry.lstart + " " + entry.command + "\\n");
+`,
+  { encoding: "utf8", mode: 0o755 },
+);
+process.env.PATH = `${FAKE_PS_DIR}${path.delimiter}${ORIGINAL_PATH}`;
+process.env.TOOL_REGISTRY_TEST_PS_JSON = "{}";
+
 async function makeTempRepoRoot() {
   return fsp.mkdtemp(path.join(os.tmpdir(), "tool-registry-test-"));
 }
@@ -50,6 +68,15 @@ function registryFilePath(repoRoot) {
 
 async function readRegistryFile(repoRoot) {
   return JSON.parse(await fsp.readFile(registryFilePath(repoRoot), "utf8"));
+}
+
+async function readRegistryFileIfExists(repoRoot) {
+  try {
+    return await readRegistryFile(repoRoot);
+  } catch (err) {
+    if (err?.code === "ENOENT") return null;
+    throw err;
+  }
 }
 
 async function writeWorkspaceManifest(repoRoot, appName, manifest) {
@@ -107,6 +134,44 @@ async function waitForPidExit(pid, timeoutMs = 2_000) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   assert.equal(isPidLive(pid), false, `pid ${pid} should have exited`);
+}
+
+function formatPsLstart(value) {
+  const date = new Date(value);
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const day = String(date.getDate()).padStart(2, " ");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${weekdays[date.getDay()]} ${months[date.getMonth()]} ${day} ${hours}:${minutes}:${seconds} ${date.getFullYear()}`;
+}
+
+function fakePsMap() {
+  return JSON.parse(process.env.TOOL_REGISTRY_TEST_PS_JSON || "{}");
+}
+
+function setFakePsEntry(pid, { lstart, command }) {
+  const map = fakePsMap();
+  map[String(pid)] = { lstart, command };
+  process.env.TOOL_REGISTRY_TEST_PS_JSON = JSON.stringify(map);
+}
+
+function deleteFakePsEntry(pid) {
+  const map = fakePsMap();
+  delete map[String(pid)];
+  process.env.TOOL_REGISTRY_TEST_PS_JSON = JSON.stringify(map);
+}
+
+async function setFakePsFromRuntime(repoRoot, id) {
+  const registry = await readRegistryFile(repoRoot);
+  const entry = registry.runtime[id];
+  assert.ok(entry, `runtime entry for ${id} should exist`);
+  setFakePsEntry(entry.pid, {
+    lstart: formatPsLstart(entry.startedAt),
+    command: entry.argv.join(" "),
+  });
+  return entry;
 }
 
 function toolRouteRequest(body, headers = {}) {
@@ -297,7 +362,7 @@ test("launchTool tracks a live pid, is idempotent, updates status, and stopTool 
   manifest.entry.port = 39998;
   const appDir = await writeWorkspaceManifest(repoRoot, "launcher-app", manifest);
   const scriptPath = await writeLongRunningScript(appDir);
-  manifest.entry.devCommand = `${process.execPath} ${scriptPath}`;
+  manifest.entry.devCommand = `node ${scriptPath}`;
   await fsp.writeFile(path.join(appDir, "agent-tool.json"), JSON.stringify(manifest, null, 2), "utf8");
 
   let launchedPid = null;
@@ -331,6 +396,7 @@ test("launchTool tracks a live pid, is idempotent, updates status, and stopTool 
   assert.equal(secondLaunch.alreadyRunning, true);
   assert.equal(secondLaunch.pid, launch.pid);
 
+  await setFakePsFromRuntime(repoRoot, "launcher-app");
   const stop = await stopTool(repoRoot, "launcher-app");
   assert.equal(stop.ok, true);
   await waitForPidExit(launch.pid);
@@ -353,12 +419,183 @@ test("launchTool rejects devCommand shell metacharacters", async () => {
   assert.equal(result.error, "tool devCommand contains unsupported shell metacharacters");
 });
 
+test("launchTool hard-rejects enforced tools with disallowed binaries", async () => {
+  const repoRoot = await makeTempRepoRoot();
+  const manifest = validManifest("enforced-bad");
+  manifest.permissions = { mode: "enforced" };
+  manifest.entry.devCommand = "python3 server.py";
+  await writeWorkspaceManifest(repoRoot, "enforced-bad", manifest);
+
+  const result = await launchTool(repoRoot, "enforced-bad");
+  assert.equal(result.ok, false);
+  assert.match(result.error, /allowed binary or contained absolute path/);
+
+  const registry = await readRegistryFileIfExists(repoRoot);
+  assert.equal(registry?.runtime?.["enforced-bad"], undefined);
+});
+
+test("launchTool rejects enforced absolute devCommand paths outside the tool directory", async () => {
+  const repoRoot = await makeTempRepoRoot();
+  const manifest = validManifest("enforced-outside-path");
+  manifest.permissions = { mode: "enforced" };
+  manifest.entry.devCommand = `${process.execPath} --version`;
+  await writeWorkspaceManifest(repoRoot, "enforced-outside-path", manifest);
+
+  const result = await launchTool(repoRoot, "enforced-outside-path");
+  assert.equal(result.ok, false);
+  assert.match(result.error, /contained absolute path/);
+});
+
+test("enforced allowlisted tools require one-time confirmation and persist it", async (t) => {
+  const repoRoot = await makeTempRepoRoot();
+  const manifest = validManifest("enforced-ok");
+  manifest.permissions = { mode: "enforced" };
+  const appDir = await writeWorkspaceManifest(repoRoot, "enforced-ok", manifest);
+  const scriptPath = await writeLongRunningScript(appDir);
+  manifest.entry.devCommand = `node ${scriptPath}`;
+  await fsp.writeFile(
+    path.join(appDir, "agent-tool.json"),
+    JSON.stringify(manifest, null, 2),
+    "utf8",
+  );
+
+  const launchedPids = [];
+  t.after(async () => {
+    for (const pid of launchedPids) {
+      if (isPidLive(pid)) {
+        try {
+          process.kill(pid);
+        } catch {
+          // Best-effort cleanup only.
+        }
+        await waitForPidExit(pid).catch(() => {});
+      }
+      deleteFakePsEntry(pid);
+    }
+  });
+
+  const first = await launchTool(repoRoot, "enforced-ok");
+  assert.equal(first.ok, false);
+  assert.equal(first.needsConfirmation, true);
+  assert.equal(first.error, "launch requires confirmation");
+
+  const confirmed = await launchTool(repoRoot, "enforced-ok", { confirm: true });
+  assert.equal(confirmed.ok, true);
+  assert.equal(Number.isInteger(confirmed.pid), true);
+  launchedPids.push(confirmed.pid);
+
+  let registry = await readRegistryFile(repoRoot);
+  assert.match(registry.confirmations["enforced-ok"], /^\d{4}-\d{2}-\d{2}T/);
+
+  await setFakePsFromRuntime(repoRoot, "enforced-ok");
+  const stopped = await stopTool(repoRoot, "enforced-ok");
+  assert.equal(stopped.ok, true);
+  await waitForPidExit(confirmed.pid);
+
+  const persisted = await launchTool(repoRoot, "enforced-ok");
+  assert.equal(persisted.ok, true);
+  assert.equal(persisted.needsConfirmation, undefined);
+  launchedPids.push(persisted.pid);
+
+  registry = await readRegistryFile(repoRoot);
+  assert.match(registry.confirmations["enforced-ok"], /^\d{4}-\d{2}-\d{2}T/);
+
+  await setFakePsFromRuntime(repoRoot, "enforced-ok");
+  const restopped = await stopTool(repoRoot, "enforced-ok");
+  assert.equal(restopped.ok, true);
+  await waitForPidExit(persisted.pid);
+});
+
+test("disclosure npm devCommand launches without confirmation", async (t) => {
+  const repoRoot = await makeTempRepoRoot();
+  const manifest = validManifest("disclosure-npm");
+  manifest.entry.devCommand = "npm --version";
+  await writeWorkspaceManifest(repoRoot, "disclosure-npm", manifest);
+
+  let launchedPid = null;
+  t.after(async () => {
+    if (launchedPid && isPidLive(launchedPid)) {
+      try {
+        process.kill(launchedPid);
+      } catch {
+        // Best-effort cleanup only.
+      }
+      await waitForPidExit(launchedPid).catch(() => {});
+    }
+  });
+
+  const result = await launchTool(repoRoot, "disclosure-npm");
+  assert.equal(result.ok, true);
+  assert.equal(result.needsConfirmation, undefined);
+  launchedPid = result.pid;
+
+  const registry = await readRegistryFile(repoRoot);
+  assert.equal(registry.confirmations["disclosure-npm"], undefined);
+});
+
+test("stopTool does not kill live unrelated pids when runtime identity mismatches", async (t) => {
+  const repoRoot = await makeTempRepoRoot();
+  await writeWorkspaceManifest(repoRoot, "stale-owned-pid", validManifest("stale-owned-pid"));
+
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    stdio: "ignore",
+  });
+  const pid = child.pid;
+  assert.equal(Number.isInteger(pid), true);
+  setFakePsEntry(pid, {
+    lstart: formatPsLstart(new Date()),
+    command: `${process.execPath} -e setInterval`,
+  });
+
+  t.after(async () => {
+    if (pid && isPidLive(pid)) {
+      try {
+        process.kill(pid);
+      } catch {
+        // Best-effort cleanup only.
+      }
+      await waitForPidExit(pid).catch(() => {});
+    }
+    deleteFakePsEntry(pid);
+  });
+
+  await fsp.mkdir(path.join(repoRoot, ".agent-studio"), { recursive: true });
+  await fsp.writeFile(
+    registryFilePath(repoRoot),
+    `${JSON.stringify(
+      {
+        registered: [],
+        runtime: {
+          "stale-owned-pid": {
+            pid,
+            startedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+            argv: ["python3", "server.py"],
+          },
+        },
+        confirmations: {},
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const stopped = await stopTool(repoRoot, "stale-owned-pid");
+  assert.equal(stopped.ok, true);
+  assert.equal(stopped.notRunning, true);
+  assert.equal(stopped.identityMismatch, true);
+  assert.equal(isPidLive(pid), true);
+
+  const registry = await readRegistryFile(repoRoot);
+  assert.equal(registry.runtime["stale-owned-pid"], undefined);
+});
+
 test("unregisterTool stops a running registered tool and clears runtime", async (t) => {
   const repoRoot = await makeTempRepoRoot();
   const manifest = validManifest("external-launcher");
   const externalDir = await writeExternalManifest(repoRoot, "external-launcher", manifest);
   const scriptPath = await writeLongRunningScript(externalDir);
-  manifest.entry.devCommand = `${process.execPath} ${scriptPath}`;
+  manifest.entry.devCommand = `node ${scriptPath}`;
   await fsp.writeFile(
     path.join(externalDir, "agent-tool.json"),
     JSON.stringify(manifest, null, 2),
@@ -385,6 +622,7 @@ test("unregisterTool stops a running registered tool and clears runtime", async 
   launchedPid = launch.pid;
   assert.equal(isPidLive(launch.pid), true);
 
+  await setFakePsFromRuntime(repoRoot, "external-launcher");
   const unregistered = await unregisterTool(repoRoot, "external-launcher");
   assert.equal(unregistered.ok, true);
   await waitForPidExit(launch.pid);

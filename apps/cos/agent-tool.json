@@ -38,7 +38,7 @@
     ]
   },
   "permissions": {
-    "mode": "disclosure",
+    "mode": "enforced",
     "filesystem": [
       "read: sample schedule input file"
     ],

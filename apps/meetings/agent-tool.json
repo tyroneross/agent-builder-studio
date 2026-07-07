@@ -34,7 +34,7 @@
     ]
   },
   "permissions": {
-    "mode": "disclosure",
+    "mode": "enforced",
     "filesystem": [
       "read: OMNIPARSE_SDK_PATH entry file",
       "read/write: MEETING_VECTOR_STORE_PATH (vector/knowledge store)",

@@ -22,7 +22,7 @@
     { "id": "folder-log", "type": "markdown" }
   ],
   "permissions": {
-    "mode": "disclosure",
+    "mode": "enforced",
     "filesystem": [
       "read/write: process.cwd() (review + folder-log markdown/json output)"
     ],

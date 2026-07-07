@@ -10,11 +10,15 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { promises as fsp } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 
-import { loadToolManifest } from "@tyroneross/tool-spec";
+import {
+  ENFORCED_BINARY_ALLOWLIST,
+  firstDevCommandToken,
+  loadToolManifest,
+} from "@tyroneross/tool-spec";
 
 const REGISTRY_DIR_NAME = ".agent-studio";
 const REGISTRY_FILE_NAME = "tool-registry.json";
@@ -59,12 +63,12 @@ function withRegistryMutationLock(fn) {
 }
 
 function emptyRegistryState() {
-  return { registered: [], runtime: {} };
+  return { registered: [], runtime: {}, confirmations: {} };
 }
 
 function normalizeRegistryState(parsed) {
   if (Array.isArray(parsed)) {
-    return { registered: parsed, runtime: {} };
+    return { registered: parsed, runtime: {}, confirmations: {} };
   }
   if (!parsed || typeof parsed !== "object") {
     return emptyRegistryState();
@@ -74,6 +78,12 @@ function normalizeRegistryState(parsed) {
     runtime:
       parsed.runtime && typeof parsed.runtime === "object" && !Array.isArray(parsed.runtime)
         ? parsed.runtime
+        : {},
+    confirmations:
+      parsed.confirmations &&
+      typeof parsed.confirmations === "object" &&
+      !Array.isArray(parsed.confirmations)
+        ? parsed.confirmations
         : {},
   };
 }
@@ -139,6 +149,46 @@ function parseDevCommand(devCommand) {
     return { ok: false, error: "tool devCommand is missing" };
   }
   return { ok: true, command, args, argv };
+}
+
+function permissionMode(tool) {
+  return tool?.manifest?.permissions?.mode === "enforced" ? "enforced" : "disclosure";
+}
+
+function toolLaunchDirectory(repoRoot, tool) {
+  if (tool?.source === "workspace") {
+    const workspace = tool?.manifest?.entry?.workspace;
+    return path.resolve(repoRoot, typeof workspace === "string" ? workspace : tool.path ?? "");
+  }
+  return path.resolve(tool?.path ?? repoRoot);
+}
+
+function isContainedPath(childPath, parentPath) {
+  const relative = path.relative(parentPath, childPath);
+  return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function commandPolicy(repoRoot, tool) {
+  const firstToken = firstDevCommandToken(tool?.manifest?.entry?.devCommand);
+  const isAllowlistedBinary = ENFORCED_BINARY_ALLOWLIST.includes(firstToken);
+  const isContainedAbsolutePath =
+    path.isAbsolute(firstToken) &&
+    isContainedPath(path.resolve(firstToken), toolLaunchDirectory(repoRoot, tool));
+  const mode = permissionMode(tool);
+  const allowedForEnforced = isAllowlistedBinary || isContainedAbsolutePath;
+
+  if (mode === "enforced" && !allowedForEnforced) {
+    return {
+      ok: false,
+      error: "enforced tool devCommand must start with an allowed binary or contained absolute path",
+    };
+  }
+
+  return {
+    ok: true,
+    mode,
+    requiresConfirmation: mode === "enforced" || !isAllowlistedBinary,
+  };
 }
 
 /**
@@ -233,14 +283,17 @@ export async function unregisterTool(repoRoot, id) {
   return withRegistryMutationLock(async () => {
     const state = await readRegistryState(repoRoot);
     const runtime = { ...(state.runtime ?? {}) };
+    const confirmations = { ...(state.confirmations ?? {}) };
     stopRuntimeEntry(runtime[id]);
     delete runtime[id];
+    delete confirmations[id];
 
     const next = state.registered.filter((t) => t.id !== id);
     await writeRegistryState(repoRoot, {
       ...state,
       registered: next,
       runtime,
+      confirmations,
     });
     return { ok: true };
   });
@@ -251,26 +304,41 @@ export async function unregisterTool(repoRoot, id) {
  * Runtime pid state is persisted alongside registered tools in the same
  * .agent-studio/tool-registry.json file.
  */
-export async function launchTool(repoRoot, id) {
+export async function launchTool(repoRoot, id, opts = {}) {
   return withRegistryMutationLock(async () => {
     const state = await readRegistryState(repoRoot);
-    const existingRuntime = state.runtime?.[id];
-    if (isTrackedRuntimeLive(existingRuntime)) {
-      return { ok: true, alreadyRunning: true, pid: existingRuntime.pid };
-    }
-
     const workspaceTools = await discoverWorkspaceTools(repoRoot);
     const tool = [...workspaceTools, ...state.registered].find((item) => item.id === id) ?? null;
     if (!tool) {
       return { ok: false, error: "tool not found" };
     }
-    if (!tool.valid) {
-      return { ok: false, error: "tool manifest is invalid" };
-    }
 
     const parsedCommand = parseDevCommand(tool?.manifest?.entry?.devCommand);
     if (!parsedCommand.ok) {
       return { ok: false, error: parsedCommand.error };
+    }
+
+    const policy = commandPolicy(repoRoot, tool);
+    if (!policy.ok) {
+      return { ok: false, error: policy.error };
+    }
+    if (!tool.valid) {
+      return { ok: false, error: "tool manifest is invalid" };
+    }
+
+    const confirmations = { ...(state.confirmations ?? {}) };
+    const isConfirmed = Boolean(confirmations[id]);
+    if (policy.requiresConfirmation && !isConfirmed && opts?.confirm !== true) {
+      return {
+        ok: false,
+        needsConfirmation: true,
+        error: "launch requires confirmation",
+      };
+    }
+
+    const existingRuntime = state.runtime?.[id];
+    if (isTrackedRuntimeLive(existingRuntime)) {
+      return { ok: true, alreadyRunning: true, pid: existingRuntime.pid };
     }
 
     const child = spawn(parsedCommand.command, parsedCommand.args, {
@@ -282,6 +350,9 @@ export async function launchTool(repoRoot, id) {
     child.unref();
 
     const pid = child.pid;
+    if (opts?.confirm === true && !isConfirmed) {
+      confirmations[id] = new Date().toISOString();
+    }
     await writeRegistryState(repoRoot, {
       ...state,
       runtime: {
@@ -293,6 +364,7 @@ export async function launchTool(repoRoot, id) {
           startedAt: new Date().toISOString(),
         },
       },
+      confirmations,
     });
 
     return { ok: true, pid };
@@ -322,6 +394,11 @@ function stopRuntimeEntry(entry) {
     return { ok: true, notRunning: true };
   }
 
+  const identity = verifyRuntimePidIdentity(entry);
+  if (!identity.ok) {
+    return { ok: true, notRunning: true, identityMismatch: true };
+  }
+
   try {
     process.kill(entry.pid);
     return { ok: true };
@@ -331,6 +408,34 @@ function stopRuntimeEntry(entry) {
     }
     throw err;
   }
+}
+
+function verifyRuntimePidIdentity(entry) {
+  const result = spawnSync("ps", ["-o", "lstart=,command=", "-p", String(entry.pid)], {
+    env: { ...process.env, LC_ALL: "C" },
+    encoding: "utf8",
+  });
+  if (result.error || result.status !== 0) return { ok: false };
+
+  const line = result.stdout.trimEnd().split(/\r?\n/).find((item) => item.trim().length > 0);
+  if (!line || line.length <= 24) return { ok: false };
+
+  const psStartedAt = Date.parse(line.slice(0, 24).trim());
+  const recordedStartedAt = Date.parse(entry.startedAt);
+  if (!Number.isFinite(psStartedAt) || !Number.isFinite(recordedStartedAt)) {
+    return { ok: false };
+  }
+  if (Math.abs(psStartedAt - recordedStartedAt) > 15_000) {
+    return { ok: false };
+  }
+
+  const command = line.slice(24).trim();
+  const expectedCommandName = path.basename(entry.argv[0] ?? "");
+  if (!expectedCommandName || !command.includes(expectedCommandName)) {
+    return { ok: false };
+  }
+
+  return { ok: true };
 }
 
 /**
