@@ -7,14 +7,16 @@
 // declare a valid apps/<name>/agent-tool.json (or are registered by external
 // path) render automatically with zero changes to this component.
 //
-// Studio can launch and stop tool dev commands through real API endpoints.
-// The manifest's devCommand remains copyable for users who prefer to run a
-// tool manually.
+// Layout follows Calm Precision: a three-line header (name -> metadata ->
+// description), one prominent primary action (Launch/Stop), and progressive
+// disclosure — capabilities, I/O, env, and permissions live behind a Details
+// toggle so the card stays scannable. Studio launches/stops tool dev commands
+// through real API endpoints; the devCommand stays copyable for manual runs.
 //
 // F2 (Calm Precision, non-negotiable): permissions are declared by the tool
 // author in agent-tool.json — Studio does not sandbox, verify, or enforce
-// them. The permissions section is always labeled to say so; never rendered
-// as a bare "Permissions:" list that could read as a security guarantee.
+// them. The permissions block is always labeled to say so; never rendered as a
+// bare "Permissions:" list that could read as a security guarantee.
 
 import { useEffect, useState } from "react";
 
@@ -80,63 +82,48 @@ function Pills({ items }) {
   );
 }
 
-function IoTable({ title, items, testId }) {
-  if (!Array.isArray(items) || items.length === 0) {
-    return (
-      <div className="tc-io">
-        <span className="tc-io-title">{title}</span>
-        <p className="tc-muted">None declared.</p>
-      </div>
-    );
-  }
+function IoList({ title, items, testId }) {
   return (
     <div className="tc-io" data-tool-card-io={testId}>
       <span className="tc-io-title">{title}</span>
-      <table className="tc-table">
-        <thead>
-          <tr>
-            <th>id</th>
-            <th>type</th>
-            <th>required</th>
-          </tr>
-        </thead>
-        <tbody>
+      {Array.isArray(items) && items.length > 0 ? (
+        <ul className="tc-io-list">
           {items.map((item, idx) => (
-            <tr key={`${item?.id ?? "field"}-${idx}`}>
-              <td>{item?.id ?? "—"}</td>
-              <td>{item?.type ?? "—"}</td>
-              <td>{item?.required ? "yes" : "no"}</td>
-            </tr>
+            <li key={`${item?.id ?? "field"}-${idx}`}>
+              <code className="tc-code">{item?.id ?? "—"}</code>
+              <span className="tc-io-type">{item?.type ?? "—"}</span>
+              {item?.required && <span className="tc-req">required</span>}
+            </li>
           ))}
-        </tbody>
-      </table>
+        </ul>
+      ) : (
+        <p className="tc-muted">None declared.</p>
+      )}
     </div>
   );
 }
 
-function EnvTable({ title, items }) {
+function EnvList({ title, items, required }) {
   if (!Array.isArray(items) || items.length === 0) return null;
   return (
-    <div className="tc-io">
-      <span className="tc-io-title">{title}</span>
-      <table className="tc-table">
-        <thead>
-          <tr>
-            <th>name</th>
-            <th>default</th>
-            <th>description</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, idx) => (
-            <tr key={`${item?.name ?? "env"}-${idx}`}>
-              <td className="tc-code">{item?.name ?? "—"}</td>
-              <td className="tc-code">{item?.default ?? "—"}</td>
-              <td>{item?.description ?? "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="tc-env-group">
+      <span className="tc-env-group-title">{title}</span>
+      <dl className="tc-env">
+        {items.map((item, idx) => (
+          <div className="tc-env-row" key={`${item?.name ?? "env"}-${idx}`}>
+            <dt>
+              <code className="tc-code">{item?.name ?? "—"}</code>
+              {required && <span className="tc-req">required</span>}
+              {item?.default != null && (
+                <span className="tc-env-default">
+                  default <code className="tc-code">{String(item.default)}</code>
+                </span>
+              )}
+            </dt>
+            {item?.description && <dd>{item.description}</dd>}
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
@@ -161,6 +148,7 @@ export default function ToolCard({ tool, onUnregistered }) {
   const [actionError, setActionError] = useState(null);
   const [launchConfirmation, setLaunchConfirmation] = useState(false);
   const [unregisterError, setUnregisterError] = useState(null);
+  const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
     setStatus(tool?.status ?? "stopped");
@@ -180,8 +168,11 @@ export default function ToolCard({ tool, onUnregistered }) {
   const currentStatus = status === "running" ? "running" : "stopped";
   const actionEndpoint = currentStatus === "running" ? "/api/tools/stop" : "/api/tools/launch";
   const actionLabel = currentStatus === "running" ? "Stop" : "Launch";
-  const actionBusyLabel = currentStatus === "running" ? "Stopping..." : "Launching...";
+  const actionBusyLabel = currentStatus === "running" ? "Stopping…" : "Launching…";
   const nextStatus = currentStatus === "running" ? "stopped" : "running";
+
+  const hasEnv = env.required?.length > 0 || env.optional?.length > 0;
+  const envCount = (env.required?.length ?? 0) + (env.optional?.length ?? 0);
 
   async function refreshStatus() {
     const res = await fetch("/api/tools/list", { cache: "no-store" });
@@ -293,17 +284,31 @@ export default function ToolCard({ tool, onUnregistered }) {
       data-tool-valid={tool.valid ? "true" : "false"}
     >
       <header className="tc-head">
-        <div className="tc-head-main">
-          <h3 className="tc-name">{tool.name || tool.id}</h3>
-          <span className="tc-id">{tool.id}</span>
-        </div>
-        <div className="tc-head-meta">
-          <span className={`tc-badge tc-badge-${tool.source}`}>{tool.source}</span>
-          <StatusDot status={currentStatus} />
-        </div>
+        <h3 className="tc-name">{tool.name || tool.id}</h3>
+        <StatusDot status={currentStatus} />
       </header>
 
-      {!tool.valid && (
+      <div className="tc-meta" data-tool-card-meta>
+        <code className="tc-id">{tool.id}</code>
+        <span className="tc-dot" aria-hidden="true">·</span>
+        <span className={`tc-source tc-source-${tool.source}`}>{tool.source}</span>
+        {typeof entry.port === "number" && (
+          <>
+            <span className="tc-dot" aria-hidden="true">·</span>
+            <span>port {entry.port}</span>
+          </>
+        )}
+        {isEnforced && (
+          <>
+            <span className="tc-dot" aria-hidden="true">·</span>
+            <span className="tc-enforced-label" title="Enforced: launch command restricted to allowed binaries" data-tool-card-enforced>
+              enforced
+            </span>
+          </>
+        )}
+      </div>
+
+      {!tool.valid ? (
         <div className="tc-errors" data-tool-card-errors>
           <span className="tc-errors-title">Manifest is invalid — not usable until fixed.</span>
           <ul className="tc-list">
@@ -313,117 +318,110 @@ export default function ToolCard({ tool, onUnregistered }) {
           </ul>
           <p className="tc-muted tc-path">{tool.path}</p>
         </div>
-      )}
+      ) : (
+        <>
+          {manifest?.description && <p className="tc-desc">{manifest.description}</p>}
 
-      {tool.valid && manifest && (
-        <div className="tc-body">
-          {manifest.description && <p className="tc-desc">{manifest.description}</p>}
+          <code className="tc-cmd" data-tool-card-dev-command title={entry.devCommand || undefined}>
+            {entry.devCommand || "no dev command declared"}
+          </code>
 
-          <section className="tc-section">
-            <span className="tc-section-title">Dev command</span>
-            <p className="tc-note">
-              Studio can launch this command. Copy it if you prefer to run the tool manually.
-            </p>
-            <div className="tc-cmd-row">
-              <code className="tc-code tc-cmd" data-tool-card-dev-command>
-                {entry.devCommand || "no dev command declared"}
-              </code>
-              <CopyButton text={entry.devCommand} />
+          <div className="tc-actions">
+            <button
+              type="button"
+              className={`tc-action-primary ${currentStatus === "running" ? "tc-action-stop" : ""}`}
+              onClick={handleToolAction}
+              disabled={actionBusy || !entry.devCommand || (currentStatus !== "running" && launchConfirmation)}
+              data-tool-card-launch-stop
+              data-tool-card-action={currentStatus === "running" ? "stop" : "launch"}
+            >
+              {actionBusy ? actionBusyLabel : actionLabel}
+            </button>
+            <CopyButton text={entry.devCommand} />
+            {manifest && (
               <button
                 type="button"
-                className={`tc-tool-action ${
-                  currentStatus === "running" ? "tc-tool-action-stop" : "tc-tool-action-launch"
-                }`}
-                onClick={handleToolAction}
-                disabled={actionBusy || !entry.devCommand || (currentStatus !== "running" && launchConfirmation)}
-                data-tool-card-launch-stop
-                data-tool-card-action={currentStatus === "running" ? "stop" : "launch"}
+                className="tc-details-toggle"
+                onClick={() => setShowDetails((v) => !v)}
+                aria-expanded={showDetails}
+                data-tool-card-details-toggle
               >
-                {actionBusy ? actionBusyLabel : actionLabel}
+                Details
+                <span className={`tc-chevron ${showDetails ? "tc-chevron-open" : ""}`} aria-hidden="true">
+                  ▾
+                </span>
               </button>
-            </div>
-            {launchConfirmation && currentStatus !== "running" && (
-              <div className="tc-launch-confirmation" data-tool-card-launch-confirmation>
-                <span className="tc-launch-confirmation-text">
-                  This tool will run{" "}
-                  <code className="tc-code tc-confirm-command">{entry.devCommand}</code>. Launch it?
-                </span>
-                <div className="tc-launch-confirmation-actions">
-                  <button
-                    type="button"
-                    className="tc-tool-action tc-tool-action-launch"
-                    onClick={handleConfirmLaunch}
-                    disabled={actionBusy}
-                    data-tool-card-confirm-launch
-                  >
-                    {actionBusy ? "Launching..." : "Confirm launch"}
-                  </button>
-                  <button
-                    type="button"
-                    className="tc-text-action"
-                    onClick={handleCancelLaunchConfirmation}
-                    disabled={actionBusy}
-                    data-tool-card-cancel-launch
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
             )}
-            {actionError && <span className="tc-inline-error">{actionError}</span>}
-            <div className="tc-meta-row">
-              {typeof entry.port === "number" && <span>port {entry.port}</span>}
-              {entry.healthPath && <span>health {entry.healthPath}</span>}
-              {entry.workspace && <span className="tc-code">{entry.workspace}</span>}
-            </div>
-          </section>
+          </div>
 
-          <section className="tc-section">
-            <span className="tc-section-title">Capabilities</span>
-            <Pills items={manifest.capabilities} />
-          </section>
-
-          <section className="tc-section tc-io-grid">
-            <IoTable title="Inputs" items={manifest.inputs} testId="inputs" />
-            <IoTable title="Outputs" items={manifest.outputs} testId="outputs" />
-          </section>
-
-          {(env.required?.length > 0 || env.optional?.length > 0) && (
-            <section className="tc-section">
-              <span className="tc-section-title">Environment variables</span>
-              <EnvTable title="Required" items={env.required} />
-              <EnvTable title="Optional" items={env.optional} />
-            </section>
-          )}
-
-          <section className="tc-section tc-permissions" data-tool-card-permissions>
-            <span className="tc-section-title">Permissions</span>
-            <div className="tc-permissions-label-row">
-              <p className="tc-permissions-label">
-                Declared by the tool — not enforced by Studio.
+          {launchConfirmation && currentStatus !== "running" && (
+            <div className="tc-confirm" data-tool-card-launch-confirmation>
+              <p className="tc-confirm-text">
+                This will run <code className="tc-code tc-confirm-command">{entry.devCommand}</code>
+                {tool.source === "git" ? " — untrusted cloned code." : "."} Launch it?
               </p>
-              {isEnforced && (
-                <span
-                  className="tc-enforced-label"
-                  title="Enforced: launch command restricted to allowed binaries"
-                  data-tool-card-enforced
+              <div className="tc-confirm-actions">
+                <button
+                  type="button"
+                  className="tc-action-primary"
+                  onClick={handleConfirmLaunch}
+                  disabled={actionBusy}
+                  data-tool-card-confirm-launch
                 >
-                  Enforced
-                </span>
+                  {actionBusy ? "Launching…" : "Confirm launch"}
+                </button>
+                <button
+                  type="button"
+                  className="tc-text-action"
+                  onClick={handleCancelLaunchConfirmation}
+                  disabled={actionBusy}
+                  data-tool-card-cancel-launch
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {actionError && <p className="tc-inline-error">{actionError}</p>}
+
+          {showDetails && manifest && (
+            <div className="tc-details" data-tool-card-details>
+              <section className="tc-section">
+                <span className="tc-section-title">Capabilities</span>
+                <Pills items={manifest.capabilities} />
+              </section>
+
+              <section className="tc-section tc-io-grid">
+                <IoList title="Inputs" items={manifest.inputs} testId="inputs" />
+                <IoList title="Outputs" items={manifest.outputs} testId="outputs" />
+              </section>
+
+              {hasEnv && (
+                <section className="tc-section">
+                  <span className="tc-section-title">
+                    Environment
+                    <span className="tc-count">{envCount}</span>
+                  </span>
+                  <EnvList title="Required" items={env.required} required />
+                  <EnvList title="Optional" items={env.optional} />
+                </section>
               )}
+
+              <section className="tc-section" data-tool-card-permissions>
+                <span className="tc-section-title">Permissions</span>
+                <p className="tc-permissions-label">Declared by the tool — not enforced by Studio.</p>
+                <div className="tc-perm-group">
+                  <span className="tc-perm-sub">Filesystem</span>
+                  <StringList items={permissions?.filesystem} />
+                </div>
+                <div className="tc-perm-group">
+                  <span className="tc-perm-sub">Network</span>
+                  <StringList items={permissions?.network} />
+                </div>
+              </section>
             </div>
-            <div className="tc-permissions-grid">
-              <div>
-                <span className="tc-permissions-sub">Filesystem</span>
-                <StringList items={permissions?.filesystem} />
-              </div>
-              <div>
-                <span className="tc-permissions-sub">Network</span>
-                <StringList items={permissions?.network} />
-              </div>
-            </div>
-          </section>
-        </div>
+          )}
+        </>
       )}
 
       {tool.source === "external" && (
@@ -435,75 +433,69 @@ export default function ToolCard({ tool, onUnregistered }) {
             disabled={busy || actionBusy}
             data-tool-card-unregister
           >
-            {busy ? "removing…" : "remove registration"}
+            {busy ? "removing…" : "Remove registration"}
           </button>
           {unregisterError && <span className="tc-inline-error">{unregisterError}</span>}
         </footer>
       )}
 
-      <style jsx>{`
+      <style jsx global>{`
         .tc {
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: 12px;
           background: var(--surface);
           padding: 16px 18px;
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 10px;
         }
         .tc-invalid {
           border-color: var(--danger);
         }
         .tc-head {
           display: flex;
-          align-items: flex-start;
+          align-items: baseline;
           justify-content: space-between;
           gap: 12px;
-          flex-wrap: wrap;
-        }
-        .tc-head-main {
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-          min-width: 0;
         }
         .tc-name {
           margin: 0;
-          font-size: 15px;
+          font-size: 16px;
           font-weight: 600;
           color: var(--ink);
+          line-height: 1.2;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .tc-meta {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+          font-size: 12px;
+          color: var(--muted);
+          margin-top: -2px;
         }
         .tc-id {
           font-family: ui-monospace, "SF Mono", Menlo, monospace;
-          font-size: 11px;
+          font-size: 12px;
           color: var(--muted);
         }
-        .tc-head-meta {
-          display: flex;
-          align-items: center;
-          gap: 10px;
+        .tc-dot {
+          color: var(--faint);
         }
-        .tc-badge {
-          font-size: 11px;
-          padding: 2px 8px;
-          border-radius: 999px;
-          border: 1px solid var(--border);
-          color: var(--muted);
-        }
-        .tc-badge-workspace {
-          border-color: var(--accent);
-          color: var(--accent-strong);
-        }
-        .tc-badge-external {
-          border-color: var(--tool);
+        .tc-source-external {
           color: var(--tool);
         }
         .tc-status {
           display: inline-flex;
           align-items: center;
           gap: 5px;
-          font-size: 11px;
+          font-size: 12px;
           color: var(--muted);
+          flex-shrink: 0;
         }
         .tc-status-dot {
           width: 7px;
@@ -511,14 +503,301 @@ export default function ToolCard({ tool, onUnregistered }) {
           border-radius: 50%;
           background: var(--faint);
         }
+        .tc-status-running {
+          color: var(--eval);
+        }
         .tc-status-running .tc-status-dot {
           background: var(--eval);
         }
-        .tc-status-stopped .tc-status-dot {
-          background: var(--faint);
+        .tc-enforced-label {
+          color: var(--accent-strong);
+          font-weight: 600;
         }
-        .tc-status-unknown .tc-status-dot {
-          background: var(--faint);
+        .tc-desc {
+          margin: 0;
+          font-size: 13px;
+          line-height: 1.45;
+          color: var(--ink);
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        .tc-cmd {
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 12px;
+          color: var(--ink);
+          display: block;
+          overflow-x: auto;
+          white-space: nowrap;
+          padding: 7px 10px;
+          border-radius: 7px;
+          background: var(--surface-muted);
+          border: 1px solid var(--border);
+        }
+        .tc-code {
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 12px;
+          color: var(--ink);
+        }
+        .tc-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .tc-action-primary {
+          flex-shrink: 0;
+          min-height: 34px;
+          padding: 0 16px;
+          border-radius: 7px;
+          border: 1px solid var(--accent);
+          background: var(--accent);
+          color: #ffffff;
+          font-size: 13px;
+          font-family: inherit;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 120ms ease;
+        }
+        .tc-action-primary:hover:not(:disabled) {
+          background: var(--accent-strong);
+        }
+        .tc-action-primary:disabled {
+          border-color: var(--border);
+          background: var(--surface-muted);
+          color: var(--faint);
+          cursor: not-allowed;
+        }
+        .tc-action-stop {
+          border-color: var(--danger);
+          background: var(--surface);
+          color: var(--danger);
+        }
+        .tc-action-stop:hover:not(:disabled) {
+          background: var(--danger-soft);
+        }
+        .tc-copy-btn {
+          flex-shrink: 0;
+          min-height: 34px;
+          box-sizing: border-box;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 12px;
+          border-radius: 7px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--ink);
+          font-size: 13px;
+          font-family: inherit;
+          cursor: pointer;
+        }
+        .tc-copy-btn:hover:not(:disabled) {
+          border-color: var(--accent);
+          color: var(--accent-strong);
+        }
+        .tc-copy-btn:disabled {
+          color: var(--faint);
+          cursor: not-allowed;
+        }
+        .tc-details-toggle {
+          margin-left: auto;
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          min-height: 34px;
+          padding: 0 4px;
+          background: none;
+          border: none;
+          font-size: 13px;
+          font-family: inherit;
+          color: var(--muted);
+          cursor: pointer;
+        }
+        .tc-details-toggle:hover {
+          color: var(--ink);
+        }
+        .tc-chevron {
+          font-size: 10px;
+          transition: transform 150ms ease;
+        }
+        .tc-chevron-open {
+          transform: rotate(180deg);
+        }
+        .tc-confirm {
+          padding: 10px 12px;
+          border-radius: 8px;
+          background: var(--surface-muted);
+          border: 1px solid var(--border);
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .tc-confirm-text {
+          margin: 0;
+          font-size: 12px;
+          line-height: 1.45;
+          color: var(--ink);
+        }
+        .tc-confirm-command {
+          overflow-wrap: anywhere;
+        }
+        .tc-confirm-actions {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .tc-details {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          padding-top: 14px;
+          margin-top: 2px;
+          border-top: 1px solid var(--border);
+        }
+        .tc-section {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .tc-section-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 11px;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--muted);
+          font-weight: 600;
+        }
+        .tc-count {
+          font-size: 11px;
+          letter-spacing: 0;
+          color: var(--muted);
+          background: var(--surface-muted);
+          border-radius: 999px;
+          padding: 1px 7px;
+          font-weight: 500;
+        }
+        .tc-pills {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .tc-pill {
+          font-size: 11px;
+          padding: 3px 9px;
+          border-radius: 999px;
+          background: var(--accent-soft);
+          color: var(--accent-strong);
+        }
+        .tc-io-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 16px;
+        }
+        .tc-io {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          min-width: 0;
+        }
+        .tc-io-title {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--ink);
+        }
+        .tc-io-list {
+          margin: 0;
+          padding: 0;
+          list-style: none;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .tc-io-list li {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+          font-size: 12px;
+        }
+        .tc-io-type {
+          color: var(--muted);
+          font-size: 11px;
+        }
+        .tc-req {
+          font-size: 10px;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          color: var(--accent-strong);
+          font-weight: 600;
+        }
+        .tc-env-group {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .tc-env-group-title {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--ink);
+        }
+        .tc-env {
+          margin: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .tc-env-row {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .tc-env-row dt {
+          display: flex;
+          align-items: baseline;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .tc-env-default {
+          font-size: 11px;
+          color: var(--muted);
+        }
+        .tc-env-row dd {
+          margin: 0;
+          font-size: 12px;
+          line-height: 1.45;
+          color: var(--muted);
+        }
+        .tc-permissions-label {
+          margin: 0;
+          font-size: 12px;
+          color: var(--policy);
+        }
+        .tc-perm-group {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .tc-perm-sub {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--ink);
+        }
+        .tc-list {
+          margin: 0;
+          padding-left: 16px;
+          font-size: 12px;
+          line-height: 1.45;
+          color: var(--muted);
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+        }
+        .tc-muted {
+          margin: 0;
+          font-size: 12px;
+          color: var(--muted);
         }
         .tc-errors {
           border: 1px solid var(--danger);
@@ -536,242 +815,23 @@ export default function ToolCard({ tool, onUnregistered }) {
         }
         .tc-path {
           font-family: ui-monospace, "SF Mono", Menlo, monospace;
-        }
-        .tc-body {
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-        }
-        .tc-desc {
-          margin: 0;
-          font-size: 13px;
-          color: var(--ink);
-        }
-        .tc-section {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-        .tc-section-title {
-          font-size: 11px;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-          color: var(--muted);
-        }
-        .tc-note {
-          margin: 0;
-          font-size: 11px;
-          color: var(--muted);
-          line-height: 1.4;
-        }
-        .tc-cmd-row {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-        .tc-cmd {
-          flex: 1;
-          min-width: 220px;
-          overflow-x: auto;
-          white-space: nowrap;
-          padding: 6px 10px;
-          border-radius: 6px;
-          background: var(--surface-muted);
-          border: 1px solid var(--border);
-        }
-        .tc-code {
-          font-family: ui-monospace, "SF Mono", Menlo, monospace;
-          font-size: 12px;
-          color: var(--ink);
-        }
-        .tc-copy-btn {
-          flex-shrink: 0;
-          min-height: 24px;
-          height: 28px;
-          box-sizing: border-box;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 0 10px;
-          border-radius: 6px;
-          border: 1px solid var(--border);
-          background: var(--surface);
-          color: var(--ink);
-          font-size: 12px;
-          font-family: inherit;
-          cursor: pointer;
-        }
-        .tc-copy-btn:hover:not(:disabled) {
-          border-color: var(--accent);
-          color: var(--accent-strong);
-        }
-        .tc-copy-btn:disabled {
-          color: var(--faint);
-          cursor: not-allowed;
-        }
-        .tc-tool-action {
-          flex-shrink: 0;
-          min-height: 32px;
-          padding: 0 12px;
-          border-radius: 6px;
-          border: 1px solid var(--accent);
-          background: var(--accent-soft);
-          color: var(--accent-strong);
-          font-size: 12px;
-          font-family: inherit;
-          font-weight: 600;
-          cursor: pointer;
-        }
-        .tc-tool-action:hover:not(:disabled) {
-          border-color: var(--accent-strong);
-        }
-        .tc-tool-action:disabled {
-          border-color: var(--border);
-          color: var(--faint);
-          cursor: not-allowed;
-        }
-        .tc-tool-action-stop {
-          border-color: var(--danger);
-          background: var(--danger-soft);
-          color: var(--danger);
-        }
-        .tc-launch-confirmation {
-          padding-top: 8px;
-          border-top: 1px solid var(--border);
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-        .tc-launch-confirmation-text {
-          flex: 1;
-          min-width: 220px;
-          font-size: 12px;
-          line-height: 1.4;
-          color: var(--ink);
-        }
-        .tc-confirm-command {
-          overflow-wrap: anywhere;
-        }
-        .tc-launch-confirmation-actions {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-        .tc-meta-row {
-          display: flex;
-          gap: 12px;
-          flex-wrap: wrap;
-          font-size: 11px;
-          color: var(--muted);
-        }
-        .tc-pills {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-        }
-        .tc-pill {
-          font-size: 11px;
-          padding: 3px 9px;
-          border-radius: 999px;
-          background: var(--accent-soft);
-          color: var(--accent-strong);
-        }
-        .tc-io-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 14px;
-        }
-        .tc-io {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          min-width: 0;
-        }
-        .tc-io-title {
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--ink);
-        }
-        .tc-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 11px;
-        }
-        .tc-table th,
-        .tc-table td {
-          text-align: left;
-          padding: 4px 6px;
-          border-bottom: 1px solid var(--border);
-          vertical-align: top;
-        }
-        .tc-muted {
-          margin: 0;
-          font-size: 12px;
-          color: var(--muted);
-        }
-        .tc-list {
-          margin: 0;
-          padding-left: 16px;
-          font-size: 12px;
-          color: var(--ink);
-          display: flex;
-          flex-direction: column;
-          gap: 3px;
-        }
-        .tc-permissions {
-          border: 1px solid var(--border);
-          border-radius: 8px;
-          padding: 10px 12px;
-          background: var(--surface-muted);
-        }
-        .tc-permissions-label {
-          margin: 0;
-          font-size: 12px;
-          font-weight: 600;
-          color: var(--policy);
-        }
-        .tc-permissions-label-row {
-          display: flex;
-          align-items: baseline;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-        .tc-enforced-label {
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--accent-strong);
-        }
-        .tc-permissions-grid {
-          margin-top: 8px;
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
-        }
-        .tc-permissions-sub {
-          display: block;
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--muted);
-          margin-bottom: 4px;
+          word-break: break-all;
         }
         .tc-footer {
           display: flex;
           align-items: center;
           gap: 10px;
-          padding-top: 4px;
+          padding-top: 10px;
+          margin-top: 2px;
           border-top: 1px solid var(--border);
         }
         .tc-text-action {
           background: none;
           border: none;
           padding: 0;
-          font-size: 12px;
+          font-size: 13px;
           cursor: pointer;
-          color: var(--accent);
+          color: var(--accent-strong);
           font-family: inherit;
         }
         .tc-text-action:hover:not(:disabled) {
@@ -785,19 +845,17 @@ export default function ToolCard({ tool, onUnregistered }) {
           color: var(--danger);
         }
         .tc-inline-error {
-          font-size: 11px;
+          margin: 0;
+          font-size: 12px;
           color: var(--danger);
         }
         @media (max-width: 640px) {
-          .tc-cmd {
-            min-width: 100%;
-          }
+          .tc-action-primary,
           .tc-copy-btn,
-          .tc-tool-action {
-            min-height: 40px;
+          .tc-details-toggle {
+            min-height: 44px;
           }
-          .tc-io-grid,
-          .tc-permissions-grid {
+          .tc-io-grid {
             grid-template-columns: 1fr;
           }
         }
