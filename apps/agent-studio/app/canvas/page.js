@@ -1,11 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import InspectorPanel from "../components/InspectorPanel";
 import MockEditorModal from "../components/MockEditorModal";
-import ProjectSwitcher from "../components/ProjectSwitcher";
 import SoloRunModal from "../components/SoloRunModal";
 import StoragePanel from "../components/StoragePanel";
 import StoragePill from "../components/StoragePill";
@@ -17,7 +15,6 @@ import {
   SEED_EDGES,
   loadStore,
   writeStore,
-  makeProject,
   seedCanvas,
   getActiveProject,
   withProjectUpdated,
@@ -111,6 +108,118 @@ const PERSIST_DEBOUNCE_MS = 350;
 // (The first-run-seen-per-project flag lives inside TestPanel.)
 const WELCOME_FLAG_KEY = "agent-studio:onboarded:v1";
 
+const CANVAS_LAYOUT_MODES = new Set(["flow", "tree", "research"]);
+const LAYOUT_LEFT = 45 * 2;
+const LAYOUT_TOP = 92;
+const LAYOUT_GAP_X = 285;
+const LAYOUT_GAP_Y = 155;
+
+function canvasOrder(nodes) {
+  return [...nodes].sort((a, b) =>
+    (a.y - b.y)
+    || (a.x - b.x)
+    || String(a.title || "").localeCompare(String(b.title || ""))
+    || String(a.id || "").localeCompare(String(b.id || "")),
+  );
+}
+
+function layoutNodesForView(nodes, edges, mode) {
+  if (mode === "tree") return layoutTreeNodes(nodes, edges);
+  if (mode === "research") return layoutResearchNodes(nodes);
+  return nodes;
+}
+
+function layoutTreeNodes(nodes, edges) {
+  if (nodes.length <= 1) return nodes;
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const inbound = new Map(nodes.map((node) => [node.id, 0]));
+  const outgoing = new Map(nodes.map((node) => [node.id, []]));
+
+  for (const edge of edges) {
+    if (!byId.has(edge.from) || !byId.has(edge.to)) continue;
+    inbound.set(edge.to, (inbound.get(edge.to) ?? 0) + 1);
+    outgoing.get(edge.from)?.push(edge.to);
+  }
+
+  const ordered = canvasOrder(nodes);
+  const depth = new Map();
+  const roots = ordered.filter((node) => (inbound.get(node.id) ?? 0) === 0);
+  const queue = roots.length > 0 ? roots.map((node) => node.id) : [ordered[0]?.id].filter(Boolean);
+  queue.forEach((id) => depth.set(id, 0));
+
+  for (let i = 0; i < queue.length; i += 1) {
+    const id = queue[i];
+    const nextDepth = (depth.get(id) ?? 0) + 1;
+    for (const to of outgoing.get(id) ?? []) {
+      if (depth.has(to)) continue;
+      depth.set(to, nextDepth);
+      queue.push(to);
+    }
+  }
+
+  let maxDepth = Math.max(0, ...depth.values());
+  for (const node of ordered) {
+    if (depth.has(node.id)) continue;
+    maxDepth += 1;
+    depth.set(node.id, maxDepth);
+  }
+
+  const grouped = new Map();
+  for (const node of ordered) {
+    const level = depth.get(node.id) ?? 0;
+    grouped.set(level, [...(grouped.get(level) ?? []), node]);
+  }
+
+  return nodes.map((node) => {
+    const level = depth.get(node.id) ?? 0;
+    const group = grouped.get(level) ?? [node];
+    const index = Math.max(0, group.findIndex((item) => item.id === node.id));
+    const yOffset = Math.max(0, (3 - group.length) * 0.5 * LAYOUT_GAP_Y);
+    return {
+      ...node,
+      x: LAYOUT_LEFT + level * LAYOUT_GAP_X,
+      y: LAYOUT_TOP + yOffset + index * LAYOUT_GAP_Y,
+    };
+  });
+}
+
+function researchPhaseForNode(node) {
+  const role = String(node.role || "").toLowerCase();
+  const title = String(node.title || "").toLowerCase();
+  const text = `${node.title || ""} ${node.description || ""} ${node.instructions || ""}`.toLowerCase();
+  if (role === "orchestrator" || /\b(scope|lead researcher|orchestr)/.test(title)) return 0;
+  if (role === "memory") return 4;
+  if (role === "guardrail" || role === "eval" || /\b(fact[- ]gate|verify|verifier|guard|policy|risk|unsupported|claim check)\b/.test(text)) return 3;
+  if (/\b(synth|synthesis|summary|report|brief|memo|memory|archive|packet)\b/.test(text)) return 4;
+  if (/\b(claim extractor|extract|metric|analysis|analyst|compare|trend|segment)\b/.test(text)) return 2;
+  if (role === "executor" || /\b(source|scout|retrieval|ingest|document|filing|transcript|earnings|call|search|docs?|evidence)\b/.test(text)) return 1;
+  return 2;
+}
+
+function layoutResearchNodes(nodes) {
+  if (nodes.length <= 1) return nodes;
+  const ordered = canvasOrder(nodes);
+  const phaseById = new Map();
+  const grouped = new Map();
+  for (const node of ordered) {
+    const phase = researchPhaseForNode(node);
+    phaseById.set(node.id, phase);
+    grouped.set(phase, [...(grouped.get(phase) ?? []), node]);
+  }
+
+  return nodes.map((node) => {
+    const phase = phaseById.get(node.id) ?? 2;
+    const group = grouped.get(phase) ?? [node];
+    const index = Math.max(0, group.findIndex((item) => item.id === node.id));
+    const yOffset = Math.max(0, (2 - group.length) * 0.5 * LAYOUT_GAP_Y);
+    return {
+      ...node,
+      x: LAYOUT_LEFT + phase * LAYOUT_GAP_X,
+      y: LAYOUT_TOP + yOffset + index * LAYOUT_GAP_Y,
+    };
+  });
+}
+
 export default function StudioCanvas() {
   const router = useRouter();
   // Canvas page is always rendered against an existing project, but we have to
@@ -122,6 +231,7 @@ export default function StudioCanvas() {
   const [edges, setEdges] = useState(SEED_EDGES);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [layoutMode, setLayoutMode] = useState("flow");
 
   const [expandedId, setExpandedId] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -136,6 +246,10 @@ export default function StudioCanvas() {
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [connect, setConnect] = useState(null);
   const [testPanelOpen, setTestPanelOpen] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(360);
+  const [projectSectionOpen, setProjectSectionOpen] = useState(true);
+  const [nodeSectionOpen, setNodeSectionOpen] = useState(true);
   // Pass 8: welcome modal. Defaults to closed; the hydration effect opens it
   // once when the localStorage flag is missing. The `?` button in the toolbar
   // re-opens it without writing the flag.
@@ -184,6 +298,15 @@ export default function StudioCanvas() {
   // keeps the textarea responsive while we coalesce writes.
   const [roleOverrideDrafts, setRoleOverrideDrafts] = useState({});
   const [rolePromptExpanded, setRolePromptExpanded] = useState(false);
+  const displayNodes = useMemo(
+    () => layoutNodesForView(nodes, edges, layoutMode),
+    [nodes, edges, layoutMode],
+  );
+
+  function requestFitViewFor(nextNodes = displayNodes) {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => fitViewForNodes(nextNodes));
+  }
 
   const screenToCanvas = useCallback(
     (sx, sy) => {
@@ -206,7 +329,7 @@ export default function StudioCanvas() {
     // Pass 13 — Shift held on empty canvas starts a lasso (rubber-band) instead
     // of a pan. Existing selection is preserved during the drag and replaced on
     // release with the nodes hit by the rect.
-    if (e.shiftKey) {
+    if (e.shiftKey && layoutMode === "flow") {
       const startCanvas = screenToCanvas(e.clientX, e.clientY);
       dragState.current = {
         type: "lasso",
@@ -239,6 +362,7 @@ export default function StudioCanvas() {
     e.stopPropagation();
     if (side !== "out") return;
     if (locked) return; // Pass 14.5 — no port drags on completed projects.
+    if (layoutMode !== "flow") return;
     const startCanvas = {
       x: node.x + node.w,
       y: node.y + node.h / 2,
@@ -266,8 +390,10 @@ export default function StudioCanvas() {
     e.stopPropagation();
     // Pass 14.5 — when locked, allow selecting (read-only side panel) but no
     // drag tracking. We still record the pointer down so a click selects.
-    if (locked) {
+    if (locked || layoutMode !== "flow") {
       setSelectedId(node.id);
+      setSelectedEdgeId(null);
+      setMultiSelected(new Set());
       return;
     }
 
@@ -439,22 +565,32 @@ export default function StudioCanvas() {
     return () => el.removeEventListener("wheel", handler);
   }, [pan, zoom]);
 
+  useEffect(() => {
+    if (!hasHydratedRef.current || nodes.length === 0) return;
+    requestFitViewFor(displayNodes);
+  }, [panelCollapsed, testPanelOpen, layoutMode]);
+
   function resetView() {
     setPan({ x: 0, y: 0 });
     setZoom(1);
   }
 
   function fitView() {
-    if (!containerRef.current || nodes.length === 0) return;
-    const minX = Math.min(...nodes.map((n) => n.x));
-    const minY = Math.min(...nodes.map((n) => n.y));
-    const maxX = Math.max(...nodes.map((n) => n.x + n.w));
-    const maxY = Math.max(...nodes.map((n) => n.y + n.h));
+    fitViewForNodes(displayNodes);
+  }
+
+  function fitViewForNodes(nextNodes = nodes) {
+    if (!containerRef.current || nextNodes.length === 0) return;
+    const minX = Math.min(...nextNodes.map((n) => n.x));
+    const minY = Math.min(...nextNodes.map((n) => n.y));
+    const maxX = Math.max(...nextNodes.map((n) => n.x + n.w));
+    const maxY = Math.max(...nextNodes.map((n) => n.y + n.h));
     const rect = containerRef.current.getBoundingClientRect();
-    const padding = 60;
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const padding = Math.max(24, Math.min(64, Math.min(rect.width, rect.height) * 0.14));
     const z = Math.min(
-      (rect.width - padding * 2) / (maxX - minX),
-      (rect.height - padding * 2) / (maxY - minY),
+      Math.max(80, rect.width - padding * 2) / (maxX - minX),
+      Math.max(80, rect.height - padding * 2) / (maxY - minY),
       1.5,
     );
     const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
@@ -465,6 +601,30 @@ export default function StudioCanvas() {
       x: rect.width / 2 - cx * newZoom,
       y: rect.height / 2 - cy * newZoom,
     });
+  }
+
+  function handlePanelResizePointerDown(e) {
+    if (panelCollapsed) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = panelWidth;
+    const maxWidth = Math.min(560, Math.max(300, window.innerWidth - 320));
+    const clampWidth = (value) => Math.max(300, Math.min(maxWidth, value));
+
+    function onMove(moveEvent) {
+      setPanelWidth(clampWidth(startWidth + startX - moveEvent.clientX));
+    }
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
   }
 
   function addNode() {
@@ -577,6 +737,7 @@ export default function StudioCanvas() {
     setEdges(active.canvas.edges);
     setPan(active.canvas.pan);
     setZoom(active.canvas.zoom);
+    requestFitViewFor(active.canvas.nodes);
     hasHydratedRef.current = true;
     // Pass 8: open the welcome modal on first canvas visit. Single global
     // flag so the modal appears once per browser, regardless of how the
@@ -636,6 +797,7 @@ export default function StudioCanvas() {
     setEdges(seeded.edges);
     setPan(seeded.pan);
     setZoom(seeded.zoom);
+    requestFitViewFor(seeded.nodes);
     setSelectedId(null);
     setSelectedEdgeId(null);
     setExpandedId(null);
@@ -643,112 +805,11 @@ export default function StudioCanvas() {
     setConnect(null);
   }
 
-  function handleSelectProject(projectId) {
-    if (!store) return;
-    if (projectId === store.activeProjectId) return;
-    if (persistTimerRef.current) {
-      clearTimeout(persistTimerRef.current);
-      persistTimerRef.current = null;
-    }
-    setStore((prev) => {
-      const flushed = withCanvasUpdated(prev, prev.activeProjectId, { nodes, edges, pan, zoom });
-      const next = { ...flushed, activeProjectId: projectId };
-      writeStore(next);
-      const target = next.projects.find((p) => p.id === projectId);
-      if (target) {
-        skipNextMirrorRef.current = true;
-        queueMicrotask(() => {
-          setNodes(target.canvas.nodes);
-          setEdges(target.canvas.edges);
-          setPan(target.canvas.pan);
-          setZoom(target.canvas.zoom);
-          setSelectedId(null);
-          setSelectedEdgeId(null);
-          setExpandedId(null);
-          setHoveredNodeId(null);
-          setConnect(null);
-        });
-      }
-      return next;
-    });
-  }
-
-  function handleNewProject(name) {
-    // Lightweight new-project flow from inside the canvas: creates a default
-    // project on the fly. The richer flow (goal/context/uploads) lives on the
-    // landing page.
-    const project = makeProject({ name });
-    if (persistTimerRef.current) {
-      clearTimeout(persistTimerRef.current);
-      persistTimerRef.current = null;
-    }
-    setStore((prev) => {
-      const flushed = withCanvasUpdated(prev, prev.activeProjectId, { nodes, edges, pan, zoom });
-      const next = {
-        ...flushed,
-        activeProjectId: project.id,
-        projects: [...flushed.projects, project],
-      };
-      writeStore(next);
-      skipNextMirrorRef.current = true;
-      queueMicrotask(() => {
-        setNodes(project.canvas.nodes);
-        setEdges(project.canvas.edges);
-        setPan(project.canvas.pan);
-        setZoom(project.canvas.zoom);
-        setSelectedId(null);
-        setSelectedEdgeId(null);
-        setExpandedId(null);
-        setHoveredNodeId(null);
-        setConnect(null);
-      });
-      return next;
-    });
-  }
-
-  function handleRenameProject(projectId, name) {
-    setStore((prev) => {
-      const next = withProjectUpdated(prev, projectId, (p) => ({ ...p, name }));
-      writeStore(next);
-      return next;
-    });
-  }
-
   // v7 — project validation profile (governance scope for the packager).
   function handleSetValidationProfile(projectId, validationProfile) {
     setStore((prev) => {
       const next = withProjectUpdated(prev, projectId, (p) => ({ ...p, validationProfile }));
       writeStore(next);
-      return next;
-    });
-  }
-
-  function handleDeleteProject(projectId) {
-    setStore((prev) => {
-      if (!prev) return prev;
-      if (prev.projects.length <= 1) return prev;
-      const remaining = prev.projects.filter((p) => p.id !== projectId);
-      const wasActive = prev.activeProjectId === projectId;
-      const nextActiveId = wasActive ? remaining[0].id : prev.activeProjectId;
-      const next = { ...prev, projects: remaining, activeProjectId: nextActiveId };
-      writeStore(next);
-      if (wasActive) {
-        const target = next.projects.find((p) => p.id === nextActiveId);
-        if (target) {
-          skipNextMirrorRef.current = true;
-          queueMicrotask(() => {
-            setNodes(target.canvas.nodes);
-            setEdges(target.canvas.edges);
-            setPan(target.canvas.pan);
-            setZoom(target.canvas.zoom);
-            setSelectedId(null);
-            setSelectedEdgeId(null);
-            setExpandedId(null);
-            setHoveredNodeId(null);
-            setConnect(null);
-          });
-        }
-      }
       return next;
     });
   }
@@ -1180,6 +1241,7 @@ export default function StudioCanvas() {
           setEdges(restored.canvas.edges);
           setPan(restored.canvas.pan ?? { x: 0, y: 0 });
           setZoom(restored.canvas.zoom ?? 1);
+          requestFitViewFor(restored.canvas.nodes);
           setSelectedId(null);
           setSelectedEdgeId(null);
           setExpandedId(null);
@@ -1469,6 +1531,7 @@ export default function StudioCanvas() {
         setEdges(parsed.canvas.edges);
         setPan(parsed.canvas.pan);
         setZoom(parsed.canvas.zoom);
+        requestFitViewFor(parsed.canvas.nodes);
         setSelectedId(null);
         setSelectedEdgeId(null);
         setExpandedId(null);
@@ -1522,6 +1585,7 @@ export default function StudioCanvas() {
           setEdges(parsed.canvas.edges);
           setPan(parsed.canvas.pan);
           setZoom(parsed.canvas.zoom);
+          requestFitViewFor(parsed.canvas.nodes);
           setSelectedId(null);
           setSelectedEdgeId(null);
           setExpandedId(null);
@@ -1530,6 +1594,66 @@ export default function StudioCanvas() {
       });
     };
     input.click();
+  }
+
+  function handleZoomMenuChange(e) {
+    const action = e.target.value;
+    e.target.value = "";
+    if (action === "fit") fitView();
+    if (action === "reset") resetView();
+  }
+
+  function handleLayoutMenuChange(e) {
+    const mode = e.target.value;
+    if (!CANVAS_LAYOUT_MODES.has(mode)) return;
+    setLayoutMode(mode);
+    setSelectedEdgeId(null);
+    setMultiSelected(new Set());
+    setConnect(null);
+    setExpandedId(null);
+  }
+
+  function handleFilesMenuChange(e) {
+    const action = e.target.value;
+    e.target.value = "";
+    if (action === "export-markdown") exportMarkdown();
+    if (action === "export-spec") exportSpec();
+    if (action === "export-package") exportFullPackage();
+    if (action === "import-markdown") importMarkdown();
+    if (action === "import-spec") importSpec();
+  }
+
+  function handleAgentMenuChange(e) {
+    const action = e.target.value;
+    e.target.value = "";
+    if (action === "save-snapshot") saveSnapshot();
+    if (action === "complete" && !locked) markCompleted();
+    if (action === "reopen" && locked) reopenProject();
+    if (action === "clear" && !locked) clearAll();
+    if (action === "clear-cache" && !locked) clearRunCache();
+    if (action === "infer" && liveProject && shouldInferEdges(liveProject) && !locked && !inferring) {
+      inferEdges();
+    }
+    if (action === "inspect" && lastTranscript) {
+      const targetId =
+        selectedId
+        || lastTranscript?.nodes?.[0]?.id
+        || nodes[0]?.id
+        || null;
+      if (targetId) openInspector(targetId);
+    }
+    if (action.startsWith("profile:") && liveProject && !locked) {
+      handleSetValidationProfile(liveProject.id, action.slice("profile:".length));
+    }
+  }
+
+  function handleHelpMenuChange(e) {
+    const action = e.target.value;
+    e.target.value = "";
+    if (action === "welcome") reopenWelcome();
+    if (action === "readme" && typeof window !== "undefined") {
+      window.open("/README.md", "_blank", "noreferrer");
+    }
   }
 
   // Pass 14 — right-click on a node opens a small context menu with "Run
@@ -1640,7 +1764,7 @@ export default function StudioCanvas() {
   function reopenWelcome() { setWelcomeOpen(true); }
 
   const edgePaths = useMemo(() => {
-    const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+    const byId = Object.fromEntries(displayNodes.map((n) => [n.id, n]));
     return edges
       .map((edge) => {
         const a = byId[edge.from];
@@ -1658,14 +1782,14 @@ export default function StudioCanvas() {
         };
       })
       .filter(Boolean);
-  }, [nodes, edges]);
+  }, [displayNodes, edges]);
 
   // Pass 16 — ghost paths for inferred-but-not-accepted edges. Same Bezier
   // shape as real edges so the visual mirrors the canonical layout; dashed
   // stroke distinguishes it from accepted edges.
   const inferredEdgePaths = useMemo(() => {
     if (!inferredEdges || inferredEdges.length === 0) return [];
-    const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+    const byId = Object.fromEntries(displayNodes.map((n) => [n.id, n]));
     return inferredEdges
       .map((edge) => {
         const a = byId[edge.from];
@@ -1683,7 +1807,7 @@ export default function StudioCanvas() {
         };
       })
       .filter(Boolean);
-  }, [nodes, inferredEdges]);
+  }, [displayNodes, inferredEdges]);
 
   const selectedNode = useMemo(
     () => (selectedId ? nodes.find((n) => n.id === selectedId) ?? null : null),
@@ -1697,7 +1821,7 @@ export default function StudioCanvas() {
 
   const ghostPath = useMemo(() => {
     if (!connect) return null;
-    const a = nodes.find((n) => n.id === connect.fromId);
+    const a = displayNodes.find((n) => n.id === connect.fromId);
     if (!a) return null;
     const x1 = a.x + a.w;
     const y1 = a.y + a.h / 2;
@@ -1705,7 +1829,9 @@ export default function StudioCanvas() {
     const y2 = connect.ghost.y;
     const mx = (x1 + x2) / 2;
     return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
-  }, [connect, nodes]);
+  }, [connect, displayNodes]);
+
+  const graphCanEdit = !locked && layoutMode === "flow";
 
   // Loading state until the store hydrates. This usually flashes for a frame
   // and then mounts the toolbar; if the store is empty we redirect to "/" in
@@ -1718,33 +1844,35 @@ export default function StudioCanvas() {
     <div className="studio-shell">
       <header className="studio-toolbar">
         <div className="studio-brand">
-          <Link href="/" className="studio-back" data-canvas-projects-link>
-            ← Projects
-          </Link>
-          <span className="studio-eyebrow">Agent Studio</span>
-          <span className="studio-title">{activeProject?.name || "Canvas"}</span>
+          <a
+            href="/"
+            className="studio-back"
+            data-canvas-projects-link
+            aria-label="Back to projects"
+          >
+            <span aria-hidden="true">←</span>
+            <span>Projects</span>
+          </a>
+          <div className="studio-title-stack">
+            <span className="studio-eyebrow">Agent Studio</span>
+            <span className="studio-title" title={activeProject?.name || "Canvas"}>
+              {activeProject?.name || "Canvas"}
+            </span>
+          </div>
         </div>
 
-        <div className="studio-tools">
-          <ProjectSwitcher
-            projects={store.projects}
-            activeProjectId={store.activeProjectId}
-            onSelect={handleSelectProject}
-            onNew={handleNewProject}
-            onRename={handleRenameProject}
-            onDelete={handleDeleteProject}
-          />
-          <span className="tool-sep" />
+        <div className="studio-tools" aria-label="Canvas controls">
           <button
-            className="tool-btn"
+            className="tool-btn tool-icon"
             onClick={addNode}
             disabled={locked}
             title={locked ? "Project is completed (read-only)" : "Add node"}
+            aria-label="Add node"
           >
-            + node
+            +
           </button>
           <button
-            className="tool-btn"
+            className="tool-btn tool-compact"
             onClick={deleteSelected}
             disabled={locked || (!selectedId && !selectedEdgeId)}
             title={locked ? "Project is completed (read-only)" : "Delete selected"}
@@ -1752,187 +1880,113 @@ export default function StudioCanvas() {
             delete
           </button>
           <span className="tool-sep" />
-          <button className="tool-btn" onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z * 0.85))} title="Zoom out">
-            −
-          </button>
-          <span className="tool-zoom">{Math.round(zoom * 100)}%</span>
-          <button className="tool-btn" onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z * 1.15))} title="Zoom in">
-            +
-          </button>
-          <button className="tool-btn" onClick={fitView} title="Fit view">
-            fit
-          </button>
-          <button className="tool-btn" onClick={resetView} title="Reset view">
-            reset
-          </button>
-          <span className="tool-sep" />
-          <button
-            className="tool-btn"
-            onClick={clearAll}
-            disabled={locked}
-            title={locked ? "Project is completed (read-only)" : "Clear this project's canvas and reset to seed graph"}
-          >
-            clear
-          </button>
-          <button
-            className="tool-btn"
-            onClick={clearRunCache}
-            disabled={locked}
-            title={locked ? "Project is completed (read-only)" : "Clear all cached solo-run outputs for this project"}
-            data-canvas-clear-cache
-          >
-            clear cache
-          </button>
-          {/* Pass 16 — Infer order. Visible only when the graph is sparse
-              (no edges, no inputs/outputs declarations). One click → one
-              Ollama call → ghost-edge banner. */}
-          {liveProject && shouldInferEdges(liveProject) && (
+          <div className="tool-group zoom-group" aria-label="Zoom controls">
             <button
-              className="tool-btn"
-              onClick={inferEdges}
-              disabled={locked || inferring}
-              title="Ask the model to suggest data-flow edges for this graph"
-              data-canvas-infer-edges
+              className="tool-btn tool-icon"
+              onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z * 0.85))}
+              title="Zoom out"
+              aria-label="Zoom out"
             >
-              {inferring ? "inferring…" : "infer order"}
+              −
             </button>
-          )}
-          <span className="tool-sep" />
-          {/* Pass 14.5 — snapshot + completion + markdown actions. */}
-          <button
-            className="tool-btn"
-            onClick={saveSnapshot}
-            title="Save the current canvas as a named snapshot"
-            data-canvas-save-snapshot
-          >
-            save snapshot
-          </button>
-          {locked ? (
+            <span className="tool-zoom">{Math.round(zoom * 100)}%</span>
             <button
-              className="tool-btn"
-              onClick={reopenProject}
-              title="Reopen this project for editing (auto-snapshots the completed state first)"
-              data-canvas-reopen
+              className="tool-btn tool-icon"
+              onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z * 1.15))}
+              title="Zoom in"
+              aria-label="Zoom in"
             >
-              reopen
+              +
             </button>
-          ) : (
-            <button
-              className="tool-btn"
-              onClick={markCompleted}
-              title="Mark project completed and lock the canvas"
-              data-canvas-mark-completed
-            >
-              mark completed
-            </button>
-          )}
-          <span className="tool-sep" />
-          <button
-            className="tool-btn"
-            onClick={exportMarkdown}
-            title="Write a single-file agent.md to the project's working folder"
-            data-canvas-export-md
+          </div>
+          <select
+            className="tool-btn tool-menu tool-menu-short"
+            defaultValue=""
+            onChange={handleZoomMenuChange}
+            title="Zoom actions"
+            aria-label="Zoom actions"
+            data-canvas-zoom-menu
           >
-            export markdown
-          </button>
-          <button
-            className="tool-btn"
-            onClick={importMarkdown}
-            title="Import an agent.md as a new project"
-            data-canvas-import-md
+            <option value="" disabled>zoom</option>
+            <option value="fit" data-canvas-fit-view>fit graph</option>
+            <option value="reset" data-canvas-reset-view>reset zoom</option>
+          </select>
+          <select
+            className="tool-btn tool-menu tool-menu-layout"
+            value={layoutMode}
+            onChange={handleLayoutMenuChange}
+            title="Layout view"
+            aria-label="Layout view"
+            data-canvas-layout-menu
           >
-            import markdown
-          </button>
-          {/* Pass 17 — agent-spec/v1 export + import. Distinct from the
-              single-file markdown export above; this writes the 10-file
-              directory consumable by agent-builder. */}
-          <button
-            className="tool-btn"
-            onClick={exportSpec}
-            title="Write the 10-file agent-spec/v1 directory to <workingFolder>/spec/"
-            data-canvas-export-spec
+            <option value="flow">flow</option>
+            <option value="tree">tree</option>
+            <option value="research">research</option>
+          </select>
+          <select
+            className="tool-btn tool-menu tool-menu-short"
+            defaultValue=""
+            onChange={handleFilesMenuChange}
+            title="Import and export"
+            aria-label="Import and export"
+            data-canvas-files-menu
           >
-            export spec
-          </button>
-          <button
-            className="tool-btn"
-            onClick={exportFullPackage}
-            title="Build the full installable package via agent-pack, stage it, and optionally promote to a standalone folder"
-            data-canvas-export-package
+            <option value="" disabled>files</option>
+            <option value="export-markdown" data-canvas-export-md>export markdown</option>
+            <option value="export-spec" data-canvas-export-spec>export spec</option>
+            <option value="export-package" data-canvas-export-package>export package</option>
+            <option value="import-markdown" data-canvas-import-md>import markdown</option>
+            <option value="import-spec" data-canvas-import-spec>import spec</option>
+          </select>
+          <select
+            className="tool-btn tool-menu tool-menu-agent"
+            defaultValue=""
+            onChange={handleAgentMenuChange}
+            title="Agent and project actions"
+            aria-label="Agent and project actions"
+            data-canvas-agent-menu
           >
-            export package
-          </button>
-          {liveProject && (
-            <select
-              className="tool-btn"
-              value={liveProject.validationProfile ?? "personal"}
-              disabled={locked}
-              onChange={(e) => handleSetValidationProfile(liveProject.id, e.target.value)}
-              title="Validation profile — scales the packaged agent's required governance contracts"
-              data-canvas-validation-profile
-            >
-              {PROFILE_OPTIONS.map((p) => (
-                <option key={p} value={p}>
-                  profile: {p}
-                </option>
-              ))}
-            </select>
-          )}
-          <button
-            className="tool-btn"
-            onClick={importSpec}
-            title="Import an agent-spec/v1 directory as a new project"
-            data-canvas-import-spec
-          >
-            import spec
-          </button>
-          <span className="tool-sep" />
-          {/* Pass 15 — Inspect last run. Visible whenever a transcript is in
-              memory; clicking opens the inspector against the currently-
-              selected node (or the first transcript node if none selected). */}
-          {lastTranscript && (
-            <button
-              type="button"
-              className="tool-btn"
-              onClick={() => {
-                const targetId =
-                  selectedId
-                  || lastTranscript?.nodes?.[0]?.id
-                  || nodes[0]?.id
-                  || null;
-                if (targetId) openInspector(targetId);
-              }}
-              title="Open the inspector against the most recent run"
-              data-canvas-inspect-last-run
-            >
-              inspect last run
-            </button>
-          )}
+            <option value="" disabled>agent</option>
+            <option value="save-snapshot" data-canvas-save-snapshot>save snapshot</option>
+            {locked ? (
+              <option value="reopen" data-canvas-reopen>reopen project</option>
+            ) : (
+              <option value="complete" data-canvas-mark-completed>mark completed</option>
+            )}
+            <option value="clear" disabled={locked}>clear canvas</option>
+            <option value="clear-cache" disabled={locked} data-canvas-clear-cache>clear cache</option>
+            {liveProject && shouldInferEdges(liveProject) && (
+              <option value="infer" disabled={locked || inferring} data-canvas-infer-edges>
+                {inferring ? "inferring..." : "infer order"}
+              </option>
+            )}
+            {lastTranscript && (
+              <option value="inspect" data-canvas-inspect-last-run>inspect run</option>
+            )}
+            {liveProject && PROFILE_OPTIONS.map((p) => (
+              <option key={p} value={`profile:${p}`} disabled={locked} data-canvas-validation-profile>
+                profile: {p}
+              </option>
+            ))}
+          </select>
           {/* Pass 14.6 — toolbar storage pill. Click opens the slide-over. */}
           <StoragePill
             onOpen={() => setStoragePanelOpen(true)}
             bytesPerRecentSave={bytesPerRecentSave}
             refreshKey={storageRefreshKey}
           />
-          <button
-            className="tool-btn tool-help"
-            onClick={reopenWelcome}
-            title="Show the welcome hints"
-            aria-label="Show welcome hints"
-            data-canvas-help-button
+          <select
+            className="tool-btn tool-menu tool-menu-help"
+            defaultValue=""
+            onChange={handleHelpMenuChange}
+            title="Help"
+            aria-label="Help"
+            data-canvas-help-menu
           >
-            ?
-          </button>
-          <a
-            className="tool-btn tool-readme"
-            href="/README.md"
-            target="_blank"
-            rel="noreferrer"
-            title="Open README in a new tab"
-            data-canvas-readme-link
-          >
-            README
-          </a>
+            <option value="" disabled>help</option>
+            <option value="welcome" data-canvas-help-button>show hints</option>
+            <option value="readme" data-canvas-readme-link>README</option>
+          </select>
         </div>
       </header>
 
@@ -1983,26 +2037,28 @@ export default function StudioCanvas() {
         </div>
       )}
       <div className="studio-body">
-      <div
-        ref={containerRef}
-        className="studio-canvas"
-        onPointerDown={onCanvasPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-      >
+      <div className="studio-canvas">
         <div
-          className="studio-grid"
-          style={{
-            backgroundPosition: `${pan.x}px ${pan.y}px`,
-            backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
-          }}
-        />
-
-        <div
-          className="studio-stage"
-          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+          ref={containerRef}
+          className="studio-graph-viewport"
+          data-layout-mode={layoutMode}
+          onPointerDown={onCanvasPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
         >
+          <div
+            className="studio-grid"
+            style={{
+              backgroundPosition: `${pan.x}px ${pan.y}px`,
+              backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
+            }}
+          />
+
+          <div
+            className="studio-stage"
+            style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+          >
           <svg className="studio-edges" width="4000" height="4000">
             <defs>
               <marker
@@ -2098,19 +2154,19 @@ export default function StudioCanvas() {
             />
           )}
 
-          {nodes.map((n) => {
+          {displayNodes.map((n) => {
             const c = ROLE_COLORS[n.role] ?? ROLE_COLORS.agent;
             const isExpanded = expandedId === n.id;
             // Pass 13 — a node is visually selected when it's the side-panel
             // anchor OR when it's part of the multi-selection set.
             const isSelected = selectedId === n.id || multiSelected.has(n.id);
             const isHovered = hoveredNodeId === n.id;
-            const showPorts = isHovered || isSelected || (connect && connect.fromId !== n.id);
+            const showPorts = graphCanEdit && (isHovered || isSelected || (connect && connect.fromId !== n.id));
             return (
               <div
                 key={n.id}
                 data-node
-                className={`studio-node ${isSelected ? "is-selected" : ""} ${isExpanded ? "is-expanded" : ""}`}
+                className={`studio-node ${isSelected ? "is-selected" : ""} ${isExpanded ? "is-expanded" : ""} ${layoutMode !== "flow" ? "is-layout-projection" : ""}`}
                 style={{
                   left: n.x,
                   top: n.y,
@@ -2158,8 +2214,11 @@ export default function StudioCanvas() {
         )}
 
         <div className="studio-help">
-          drag empty space to pan · scroll to zoom · click a node to expand · drag a node to move ·
-          drag from the right port to connect · click an edge then Delete to remove
+          {layoutMode === "flow"
+            ? "drag empty space to pan · scroll to zoom · click a node to expand · drag a node to move · drag from the right port to connect · click an edge then Delete to remove"
+            : "drag empty space to pan · scroll to zoom · click a node to inspect · switch to flow to edit graph structure"}
+        </div>
+
         </div>
 
         <TestPanel
@@ -2173,35 +2232,85 @@ export default function StudioCanvas() {
       </div>
 
       {activeProject && (
-        <aside className="studio-panel" aria-label="Project and node properties">
+        <aside
+          className={`studio-panel${panelCollapsed ? " is-collapsed" : ""}`}
+          style={{ width: panelCollapsed ? 44 : panelWidth }}
+          aria-label="Project and node properties"
+        >
+          {!panelCollapsed && (
+            <div
+              className="panel-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              title="Resize inspector"
+              onPointerDown={handlePanelResizePointerDown}
+            />
+          )}
           <div className="panel-header">
             <span className="studio-eyebrow">Project</span>
-            <span className="panel-id" title="Project id">{activeProject.id}</span>
+            {!panelCollapsed && <span className="panel-id" title="Project id">{activeProject.id}</span>}
+            <button
+              type="button"
+              className="panel-icon-btn"
+              onClick={() => setPanelCollapsed((v) => !v)}
+              aria-label={panelCollapsed ? "Expand inspector" : "Collapse inspector"}
+              title={panelCollapsed ? "Expand inspector" : "Collapse inspector"}
+              data-panel-collapse
+            >
+              {panelCollapsed ? "‹" : "›"}
+            </button>
           </div>
 
-          <div className="panel-body">
-            <WorkingFolderInput
-              value={activeProject.workingFolder}
-              onChange={handleWorkingFolderChange}
-              disabled={locked}
-            />
+          {!panelCollapsed && (
+            <div className="panel-body">
+              <section className="panel-section" data-panel-section="project">
+                <button
+                  type="button"
+                  className="panel-section-toggle"
+                  onClick={() => setProjectSectionOpen((v) => !v)}
+                  aria-expanded={projectSectionOpen}
+                >
+                  <span>Project settings</span>
+                  <span aria-hidden="true">{projectSectionOpen ? "−" : "+"}</span>
+                </button>
+                {projectSectionOpen && (
+                  <div className="panel-section-body">
+                    <WorkingFolderInput
+                      value={activeProject.workingFolder}
+                      onChange={handleWorkingFolderChange}
+                      disabled={locked}
+                    />
 
-            {/* Pass 14.5 — snapshot list. Always rendered (even when empty)
-                so the user knows the section exists; "no snapshots yet" line
-                doubles as guidance. */}
-            <SnapshotsSection
-              snapshots={activeProject.snapshots ?? []}
-              onRestore={restoreSnapshot}
-              onDelete={deleteSnapshot}
-            />
+                    {/* Pass 14.5 — snapshot list. Always rendered (even when empty)
+                        so the user knows the section exists; "no snapshots yet" line
+                        doubles as guidance. */}
+                    <SnapshotsSection
+                      snapshots={activeProject.snapshots ?? []}
+                      onRestore={restoreSnapshot}
+                      onDelete={deleteSnapshot}
+                    />
+                  </div>
+                )}
+              </section>
 
-            {selectedNode ? (
-              <>
-                <div className="panel-divider" />
-                <div className="panel-subheader">
-                  <span className="studio-eyebrow">Node</span>
-                  <span className="panel-id" title="Node id">{selectedNode.id}</span>
-                </div>
+              <div className="panel-divider" />
+
+              <section className="panel-section" data-panel-section="node">
+                <button
+                  type="button"
+                  className="panel-section-toggle"
+                  onClick={() => setNodeSectionOpen((v) => !v)}
+                  aria-expanded={nodeSectionOpen}
+                >
+                  <span>Node details</span>
+                  <span className="panel-section-meta">
+                    {selectedNode?.id || "none selected"}
+                    <span aria-hidden="true">{nodeSectionOpen ? " −" : " +"}</span>
+                  </span>
+                </button>
+
+                {nodeSectionOpen && selectedNode ? (
+                  <div className="panel-section-body">
                 <label className="panel-field">
                   <span className="panel-label">Title</span>
                   <input
@@ -2296,13 +2405,15 @@ export default function StudioCanvas() {
                   onChange={(v) => setRoleOverrideDraft(selectedNode.role, v)}
                   onReset={() => resetRoleOverride(selectedNode.role)}
                 />
-              </>
-            ) : (
-              <p className="panel-empty">Select a node to edit its title, role, and instructions.</p>
-            )}
-          </div>
+                  </div>
+                ) : nodeSectionOpen ? (
+                  <p className="panel-empty">Select a node to edit its title, role, and instructions.</p>
+                ) : null}
+              </section>
+            </div>
+          )}
 
-          {selectedNode && (
+          {!panelCollapsed && selectedNode && (
             <div className="panel-footer">
               <button
                 className="tool-btn panel-solo-run"
@@ -2428,11 +2539,13 @@ export default function StudioCanvas() {
           flex-direction: column;
         }
         .studio-toolbar {
-          height: 56px;
-          padding: 0 18px;
+          min-height: 52px;
+          padding: 8px 16px;
           display: flex;
           align-items: center;
           justify-content: space-between;
+          gap: 10px;
+          flex-wrap: nowrap;
           border-bottom: 1px solid var(--border);
           background: var(--surface);
           z-index: 2;
@@ -2440,21 +2553,35 @@ export default function StudioCanvas() {
         .studio-brand {
           display: flex;
           align-items: center;
-          gap: 14px;
+          gap: 10px;
           line-height: 1.1;
+          min-width: 0;
+          flex: 0 0 260px;
         }
         .studio-back {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          height: 32px;
           font-size: 12px;
           color: var(--muted);
           text-decoration: none;
-          padding: 4px 8px;
+          padding: 0 10px;
           border-radius: 6px;
           border: 1px solid var(--border);
           background: var(--surface);
+          white-space: nowrap;
+          flex: 0 0 auto;
         }
         .studio-back:hover {
           color: var(--accent-strong);
           border-color: var(--accent);
+        }
+        .studio-title-stack {
+          display: grid;
+          gap: 2px;
+          min-width: 0;
         }
         .studio-eyebrow {
           font-size: 11px;
@@ -2465,22 +2592,51 @@ export default function StudioCanvas() {
         .studio-title {
           font-size: 16px;
           font-weight: 600;
+          line-height: 1.2;
+          max-width: min(25vw, 260px);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .studio-tools {
           display: flex;
           align-items: center;
-          gap: 6px;
+          justify-content: flex-end;
+          gap: 4px;
+          flex-wrap: nowrap;
+          flex: 0 1 auto;
+          min-width: 0;
+          overflow-x: auto;
+          scrollbar-width: none;
+        }
+        .studio-tools::-webkit-scrollbar {
+          display: none;
         }
         .tool-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
           height: 32px;
-          padding: 0 12px;
-          border-radius: 8px;
+          padding: 0 10px;
+          border-radius: 7px;
           border: 1px solid var(--border);
           background: var(--surface);
           font-size: 13px;
           color: var(--ink);
           cursor: pointer;
           font-family: inherit;
+          line-height: 1;
+          white-space: nowrap;
+          flex: 0 0 auto;
+        }
+        .tool-compact {
+          padding: 0 10px;
+        }
+        .tool-icon {
+          width: 32px;
+          padding: 0;
+          font-weight: 600;
         }
         .tool-btn:hover:not(:disabled) {
           border-color: var(--accent);
@@ -2490,8 +2646,50 @@ export default function StudioCanvas() {
           color: var(--faint);
           cursor: not-allowed;
         }
+        .tool-menu {
+          min-width: 76px;
+          max-width: 96px;
+          padding: 0 8px;
+          appearance: auto;
+          text-align: left;
+        }
+        .tool-menu-short {
+          min-width: 74px;
+          max-width: 82px;
+        }
+        .tool-menu-layout {
+          min-width: 82px;
+          max-width: 96px;
+        }
+        .tool-menu-agent {
+          min-width: 78px;
+          max-width: 88px;
+        }
+        .tool-menu-help {
+          min-width: 72px;
+          max-width: 78px;
+        }
+        .tool-group {
+          display: inline-flex;
+          align-items: center;
+          gap: 2px;
+          flex: 0 0 auto;
+        }
+        .zoom-group {
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          background: var(--surface);
+          overflow: hidden;
+        }
+        .zoom-group .tool-btn {
+          border: 0;
+          border-radius: 0;
+        }
+        .zoom-group .tool-btn:hover:not(:disabled) {
+          background: var(--accent-soft);
+        }
         .tool-zoom {
-          width: 56px;
+          width: 44px;
           text-align: center;
           font-family: ui-monospace, "SF Mono", Menlo, monospace;
           font-size: 12px;
@@ -2499,9 +2697,9 @@ export default function StudioCanvas() {
         }
         .tool-sep {
           width: 1px;
-          height: 22px;
+          height: 20px;
           background: var(--border);
-          margin: 0 6px;
+          margin: 0 4px;
         }
         .studio-body {
           flex: 1;
@@ -2554,12 +2752,22 @@ export default function StudioCanvas() {
           position: relative;
           flex: 1;
           min-width: 0;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          background: var(--bg);
+        }
+        .studio-graph-viewport {
+          position: relative;
+          flex: 1 1 auto;
+          min-height: 180px;
           overflow: hidden;
           background: var(--bg);
           touch-action: none;
           cursor: grab;
         }
-        .studio-canvas:active {
+        .studio-graph-viewport:active {
           cursor: grabbing;
         }
         .studio-grid {
@@ -2607,6 +2815,9 @@ export default function StudioCanvas() {
         }
         .studio-node.is-expanded {
           z-index: 5;
+        }
+        .studio-node.is-layout-projection {
+          cursor: pointer;
         }
         .studio-node-role {
           font-size: 10px;
@@ -2680,40 +2891,73 @@ export default function StudioCanvas() {
           padding: 24px;
           text-align: center;
         }
-        .tool-help {
-          width: 32px;
-          padding: 0;
-          font-weight: 600;
-        }
-        .tool-readme {
-          text-decoration: none;
-          color: var(--ink);
-          display: inline-flex;
-          align-items: center;
-        }
-        .tool-readme:hover {
-          border-color: var(--accent);
-          color: var(--accent-strong);
+        @media (max-width: 900px) {
+          .studio-toolbar {
+            align-items: flex-start;
+            padding: 8px 10px;
+            flex-wrap: wrap;
+          }
+          .studio-brand {
+            flex-basis: 100%;
+          }
+          .studio-title {
+            max-width: calc(100vw - 170px);
+          }
+          .studio-tools {
+            justify-content: flex-start;
+            flex-basis: 100%;
+          }
+          .tool-sep {
+            display: none;
+          }
         }
         .studio-panel {
-          width: 340px;
           flex-shrink: 0;
+          position: relative;
           display: flex;
           flex-direction: column;
           background: var(--surface);
           border-left: 1px solid var(--border);
           overflow-y: auto;
           z-index: 1;
+          min-width: 300px;
+          max-width: min(560px, calc(100vw - 320px));
+        }
+        .studio-panel.is-collapsed {
+          min-width: 44px;
+          max-width: 44px;
+          overflow: hidden;
+        }
+        .panel-resizer {
+          position: absolute;
+          left: -4px;
+          top: 0;
+          bottom: 0;
+          width: 8px;
+          cursor: col-resize;
+          z-index: 3;
+        }
+        .panel-resizer:hover {
+          background: var(--accent-soft);
         }
         .panel-header,
         .panel-subheader {
           display: flex;
           align-items: baseline;
           justify-content: space-between;
+          gap: 10px;
           padding: 14px 18px 10px;
         }
         .panel-header {
           border-bottom: 1px solid var(--border);
+        }
+        .studio-panel.is-collapsed .panel-header {
+          align-items: center;
+          justify-content: center;
+          padding: 12px 6px;
+        }
+        .studio-panel.is-collapsed .studio-eyebrow {
+          display: none;
         }
         .panel-subheader {
           padding: 4px 0 6px;
@@ -2735,6 +2979,68 @@ export default function StudioCanvas() {
           gap: 12px;
           flex: 1;
         }
+        .panel-icon-btn {
+          width: 28px;
+          height: 28px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 7px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--muted);
+          cursor: pointer;
+          font-family: inherit;
+          font-size: 14px;
+          flex: 0 0 auto;
+        }
+        .panel-icon-btn:hover {
+          border-color: var(--accent);
+          color: var(--accent-strong);
+        }
+        .panel-section {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .panel-section-toggle {
+          min-height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: var(--ink);
+          cursor: pointer;
+          font-family: inherit;
+          font-size: 13px;
+          font-weight: 600;
+          text-align: left;
+        }
+        .panel-section-toggle:hover {
+          color: var(--accent-strong);
+        }
+        .panel-section-meta {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          min-width: 0;
+          max-width: 60%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: var(--faint);
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 11px;
+          font-weight: 400;
+        }
+        .panel-section-body {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
         .panel-empty {
           font-size: 12px;
           color: var(--muted);
@@ -2755,6 +3061,37 @@ export default function StudioCanvas() {
           font-size: 12px;
           color: var(--muted);
           margin: 2px 0 6px;
+        }
+        .panel-inline-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .panel-inline-row .panel-select {
+          flex: 1 1 180px;
+          min-width: 0;
+        }
+        .panel-tools-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+        .panel-tool-row {
+          display: grid;
+          gap: 6px;
+          margin-bottom: 8px;
+        }
+        .panel-tool-line {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto auto;
+          align-items: center;
+          gap: 6px;
+        }
+        .panel-tool-line-secondary {
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         }
         .panel-mini-btn {
           font-size: 11px;
@@ -2989,7 +3326,7 @@ function NodeGovernance({ node, locked, onField }) {
 
   return (
     <div className="panel-field" data-node-governance>
-      <label className="panel-field">
+      <label className="panel-field panel-inline-row">
         <span className="panel-label">Permission</span>
         <select
           className="panel-input panel-select"
@@ -3005,8 +3342,8 @@ function NodeGovernance({ node, locked, onField }) {
         </select>
       </label>
 
-      <span className="panel-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        Tools
+      <span className="panel-label panel-tools-head">
+        <span>Tools</span>
         <button type="button" className="panel-mini-btn" disabled={locked} onClick={addTool}>
           + add tool
         </button>
@@ -3017,11 +3354,10 @@ function NodeGovernance({ node, locked, onField }) {
       )}
 
       {tools.map((t, i) => (
-        <div key={i} className="panel-tool-row" style={{ display: "grid", gap: 4, marginBottom: 8 }}>
-          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+        <div key={i} className="panel-tool-row">
+          <div className="panel-tool-line">
             <input
               className="panel-input"
-              style={{ flex: 1 }}
               value={t.name ?? ""}
               placeholder="tool name (e.g. read_context)"
               disabled={locked}
@@ -3034,10 +3370,9 @@ function NodeGovernance({ node, locked, onField }) {
               ✕
             </button>
           </div>
-          <div style={{ display: "flex", gap: 4 }}>
+          <div className="panel-tool-line panel-tool-line-secondary">
             <select
               className="panel-input panel-select"
-              style={{ flex: 1 }}
               value={t.sideEffect ?? "read"}
               disabled={locked}
               onChange={(e) => setTool(i, "sideEffect", e.target.value)}
@@ -3050,7 +3385,6 @@ function NodeGovernance({ node, locked, onField }) {
             </select>
             <select
               className="panel-input panel-select"
-              style={{ flex: 1 }}
               value={t.permission ?? "allow-read"}
               disabled={locked}
               onChange={(e) => setTool(i, "permission", e.target.value)}

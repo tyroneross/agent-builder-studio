@@ -34,6 +34,58 @@ function statusColor(status) {
   return "var(--faint)";
 }
 
+function planPanelLevels(project) {
+  const nodes = project?.canvas?.nodes ?? [];
+  const edges = project?.canvas?.edges ?? [];
+  if (nodes.length === 0) return { levels: [], hasOrdering: false, error: null };
+
+  const incoming = new Map(nodes.map((n) => [n.id, new Set()]));
+  for (const edge of edges) {
+    if (!incoming.has(edge?.from) || !incoming.has(edge?.to)) continue;
+    if (edge.from !== edge.to) incoming.get(edge.to).add(edge.from);
+  }
+
+  const producers = new Map();
+  for (const node of nodes) {
+    for (const tag of Array.isArray(node.outputs) ? node.outputs : []) {
+      if (typeof tag !== "string" || !tag) continue;
+      if (!producers.has(tag)) producers.set(tag, []);
+      producers.get(tag).push(node.id);
+    }
+  }
+
+  for (const node of nodes) {
+    for (const tag of Array.isArray(node.inputs) ? node.inputs : []) {
+      const producerIds = producers.get(tag) ?? [];
+      for (const fromId of producerIds) {
+        if (fromId !== node.id) incoming.get(node.id).add(fromId);
+      }
+    }
+  }
+
+  const hasOrdering = edges.length > 0 || nodes.some((n) => n.inputs?.length || n.outputs?.length);
+  if (!hasOrdering) return { levels: [nodes.map((n) => n.id)], hasOrdering: false, error: null };
+
+  const remaining = new Map(Array.from(incoming.entries()).map(([id, deps]) => [id, new Set(deps)]));
+  const idsLeft = new Set(nodes.map((n) => n.id));
+  const levels = [];
+  while (idsLeft.size > 0) {
+    const ready = [];
+    for (const id of idsLeft) {
+      if ((remaining.get(id)?.size ?? 0) === 0) ready.push(id);
+    }
+    if (ready.length === 0) {
+      return { levels: [nodes.map((n) => n.id)], hasOrdering: true, error: "cycle detected" };
+    }
+    levels.push(ready);
+    for (const id of ready) {
+      idsLeft.delete(id);
+      for (const deps of remaining.values()) deps.delete(id);
+    }
+  }
+  return { levels, hasOrdering: true, error: null };
+}
+
 // Pass 18 — collect every subagent project id reachable from `project`,
 // recursively, so the client can ship them all in one request body. We
 // dedupe and stop at depth `subagentMaxDepth` to mirror the runtime's cap
@@ -62,6 +114,7 @@ function collectSubagentProjects(project, allProjects, depthCap = 8) {
 
 export default function TestPanel({ project, isOpen, onToggle, locked = false, onTranscriptComplete, allProjects = [] }) {
   const [models, setModels] = useState([]);
+  const [modelOptions, setModelOptions] = useState([]);
   const [modelsError, setModelsError] = useState(null);
   const [selectedModel, setSelectedModel] = useState("");
   const [query, setQuery] = useState("");
@@ -71,6 +124,8 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
   const [brief, setBrief] = useState("");
   const [runDir, setRunDir] = useState(null);
   const [error, setError] = useState(null);
+  const [runStatus, setRunStatus] = useState(null);
+  const [runModel, setRunModel] = useState(null);
   // Pass 15 — step mode + per-run controller. `runId` is set after the
   // server emits `run-started`; clears on `complete`. `pausedAtLevel` is
   // the most recent `level-start` event's level so the Next button label
@@ -81,6 +136,8 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
   // Determines whether to show the example-query hint above the textarea.
   const [firstRunSeen, setFirstRunSeen] = useState(true);
   const abortRef = useRef(null);
+  const runModelRef = useRef(null);
+  const selectedModelRef = useRef("");
   // Pass 11: track whether THIS project has been auto-opened already in this
   // mount. Without this, every isOpen flip would re-trigger the auto-open
   // effect and we'd fight the user's explicit close.
@@ -88,6 +145,10 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
   // Pass 11: track whether the current open run has been pre-filled. We seed
   // the query exactly once per first-run open so user edits aren't clobbered.
   const prefilledForProjectRef = useRef(null);
+
+  useEffect(() => {
+    selectedModelRef.current = selectedModel;
+  }, [selectedModel]);
 
   // Hydrate first-run flag whenever the active project changes. Default to
   // "seen" for SSR to avoid hint flicker before localStorage is available.
@@ -156,25 +217,32 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
         const body = await res.json();
         if (cancelled) return;
         if (body?.ok && Array.isArray(body.models)) {
-          setModels(body.models);
+          const options = Array.isArray(body.modelOptions)
+            ? body.modelOptions.filter((m) => m?.available && typeof m.id === "string")
+            : body.models.map((m) => ({ id: m, label: m, provider: "ollama", source: "local", available: true }));
+          const ids = options.map((m) => m.id);
+          setModelOptions(options);
+          setModels(ids);
           setModelsError(null);
-          if (body.models.length > 0) {
+          if (ids.length > 0) {
             // Default: keep the user's pick if still installed; otherwise
             // prefer a known-solid instruct family over whatever happens to
             // sort first (tinyllama makes a poor first-run demo).
             const preferred =
               [/^llama3/i, /^qwen3/i, /^gemma/i]
-                .map((re) => body.models.find((m) => re.test(m)))
-                .find(Boolean) ?? body.models[0];
-            setSelectedModel((prev) => (prev && body.models.includes(prev) ? prev : preferred));
+                .map((re) => ids.find((m) => re.test(m)))
+                .find(Boolean) ?? ids[0];
+            setSelectedModel((prev) => (prev && ids.includes(prev) ? prev : preferred));
           }
         } else {
           setModels([]);
+          setModelOptions([]);
           setModelsError(body?.error || "could not list models");
         }
       } catch (err) {
         if (cancelled) return;
         setModels([]);
+        setModelOptions([]);
         setModelsError(err?.message || "could not reach /api/agent/models");
       }
     })();
@@ -183,18 +251,46 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
     };
   }, [isOpen]);
 
+  const levelPlan = useMemo(() => planPanelLevels(project), [project]);
+
   const nodeRows = useMemo(() => {
     if (!project?.canvas?.nodes) return [];
+    const levelById = new Map();
+    for (let i = 0; i < levelPlan.levels.length; i++) {
+      for (const id of levelPlan.levels[i]) levelById.set(id, i);
+    }
     return project.canvas.nodes.map((n) => ({
       id: n.id,
       title: n.title,
       role: n.role,
+      level: levelById.get(n.id) ?? 0,
       status: statusById[n.id]?.status ?? "idle",
       durationMs: statusById[n.id]?.durationMs ?? null,
       bytes: statusById[n.id]?.bytes ?? null,
       error: statusById[n.id]?.error ?? null,
+      mocked: statusById[n.id]?.mocked === true,
+      model: statusById[n.id]?.model ?? null,
     }));
-  }, [project, statusById]);
+  }, [levelPlan, project, statusById]);
+
+  const stageGroups = useMemo(() => {
+    const rowsById = new Map(nodeRows.map((row) => [row.id, row]));
+    return levelPlan.levels
+      .map((ids, index) => ({
+        index,
+        rows: ids.map((id) => rowsById.get(id)).filter(Boolean),
+      }))
+      .filter((group) => group.rows.length > 0);
+  }, [levelPlan, nodeRows]);
+
+  const runBlockedReason = useMemo(() => {
+    if (locked) return "project is completed";
+    if (!project) return "no active project";
+    if (modelsError) return modelsError;
+    if (models.length === 0) return "no chat models are available";
+    if (!selectedModel) return "select a model";
+    return null;
+  }, [locked, models.length, modelsError, project, selectedModel]);
 
   function resetRunState() {
     setWarnings([]);
@@ -202,6 +298,9 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
     setBrief("");
     setRunDir(null);
     setError(null);
+    setRunStatus(null);
+    setRunModel(null);
+    runModelRef.current = null;
   }
 
   const handleEvent = useCallback((evt) => {
@@ -210,10 +309,19 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
       // Pass 15 — server registered a step controller; capture runId so
       // advance / skip / cancel can target it.
       setRunId(evt.runId || null);
+      setRunStatus("Run started.");
+      return;
+    }
+    if (evt.type === "warmup-ok") {
+      const model = evt.model || selectedModelRef.current || null;
+      runModelRef.current = model;
+      setRunModel(model);
+      setRunStatus(model ? `Using ${model}.` : "Model ready.");
       return;
     }
     if (evt.type === "level-start") {
       setPausedAtLevel(typeof evt.level === "number" ? evt.level : null);
+      setRunStatus(typeof evt.level === "number" ? `Paused at level ${evt.level}.` : "Step run paused.");
       return;
     }
     if (evt.type === "warning") {
@@ -222,10 +330,13 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
     }
     if (evt.type === "warmup-fail") {
       setError(evt.error || "warmup failed");
+      setRunStatus("Warmup failed.");
       return;
     }
     if (evt.type === "node-start") {
-      setStatusById((m) => ({ ...m, [evt.id]: { status: "running", bytes: 0 } }));
+      const model = evt.model || runModelRef.current || selectedModelRef.current || null;
+      setStatusById((m) => ({ ...m, [evt.id]: { status: "running", bytes: 0, model } }));
+      setRunStatus(`Running ${evt.id || "node"}...`);
       return;
     }
     if (evt.type === "node-chunk") {
@@ -239,22 +350,31 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
       setStatusById((m) => ({
         ...m,
         [evt.id]: {
+          ...(m[evt.id] || {}),
           status: "ok",
           durationMs: evt.durationMs,
           bytes: evt.bytes,
+          model: evt.model || m[evt.id]?.model || runModelRef.current || selectedModelRef.current || null,
           mocked: evt.mocked === true,
         },
       }));
+      setRunStatus(`Completed ${evt.id || "node"}.`);
       return;
     }
     if (evt.type === "node-error") {
       if (!evt.id) {
         setError(evt.error || "run error");
+        setRunStatus("Run error.");
         return;
       }
       setStatusById((m) => ({
         ...m,
-        [evt.id]: { status: "error", error: evt.error },
+        [evt.id]: {
+          ...(m[evt.id] || {}),
+          status: "error",
+          error: evt.error,
+          model: evt.model || m[evt.id]?.model || runModelRef.current || selectedModelRef.current || null,
+        },
       }));
       return;
     }
@@ -263,6 +383,7 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
       setRunDir(evt.runDir || null);
       setRunId(null);
       setPausedAtLevel(null);
+      setRunStatus("Run complete.");
       // Pass 15 — surface the full transcript so the canvas page can mount
       // the inspector against it. Includes per-node systemPrompt /
       // userMessage / parsed / output / mocked.
@@ -346,9 +467,15 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
   async function startRun(step = false) {
     if (!project) return;
     if (running) return;
+    if (runBlockedReason) {
+      setError(runBlockedReason);
+      setRunStatus("Run blocked.");
+      return;
+    }
     markFirstRunSeen();
     resetRunState();
     setRunning(true);
+    setRunStatus(step ? "Starting step run..." : "Starting run...");
     setRunId(null);
     setPausedAtLevel(null);
     const ac = new AbortController();
@@ -377,8 +504,10 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
     } catch (err) {
       if (err?.name === "AbortError") {
         setError("run cancelled");
+        setRunStatus("Run cancelled.");
       } else {
         setError(err?.message || "run failed");
+        setRunStatus("Run failed.");
       }
     } finally {
       setRunning(false);
@@ -416,6 +545,19 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
     }
   }
 
+  function modelLabel(id) {
+    if (!id) return "not run yet";
+    const option = modelOptions.find((m) => m.id === id);
+    if (!option) return id;
+    return `${option.label || option.id} (${option.source || option.provider || "available"})`;
+  }
+
+  function nodeModelMessage(row) {
+    if (row.mocked) return `${row.title}: mocked output, no model call`;
+    const model = row.model || runModel || selectedModel || null;
+    return `${row.title}: ${modelLabel(model)}`;
+  }
+
   return (
     <div className={`test-panel ${isOpen ? "is-open" : ""}`} data-test-panel>
       <button
@@ -448,9 +590,9 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
                 {models.length === 0 && (
                   <option value="">{modelsError ? "ollama unreachable" : "no models pulled"}</option>
                 )}
-                {models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
+                {modelOptions.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label || m.id} · {m.source || m.provider || "available"}
                   </option>
                 ))}
               </select>
@@ -476,8 +618,8 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
                     type="button"
                     className="tool-btn tp-run"
                     onClick={() => startRun(false)}
-                    disabled={!project || models.length === 0 || locked}
-                    title={locked ? "Project is completed (read-only)" : undefined}
+                    disabled={!!runBlockedReason}
+                    title={runBlockedReason || "Run the graph"}
                     data-test-panel-run
                   >
                     Run
@@ -486,8 +628,8 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
                     type="button"
                     className="tool-btn"
                     onClick={() => startRun(true)}
-                    disabled={!project || models.length === 0 || locked}
-                    title={locked ? "Project is completed (read-only)" : "Step through the chain one DAG level at a time"}
+                    disabled={!!runBlockedReason}
+                    title={runBlockedReason || "Step through the chain one DAG level at a time"}
                     data-test-panel-step-run
                   >
                     Step run
@@ -530,6 +672,16 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
             </div>
           </div>
 
+          {(runStatus || runBlockedReason) && (
+            <div
+              className={`tp-run-status${runBlockedReason && !running ? " is-blocked" : ""}`}
+              role="status"
+              data-test-panel-run-status
+            >
+              {running ? runStatus || "Run in progress..." : runStatus || `Cannot run: ${runBlockedReason}.`}
+            </div>
+          )}
+
           {warnings.length > 0 && (
             <ul className="tp-warnings" data-test-panel-warnings>
               {warnings.map((w, i) => (
@@ -544,25 +696,45 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
             </div>
           )}
 
-          <ul className="tp-nodes" data-test-panel-nodes>
-            {nodeRows.map((n) => (
-              <li key={n.id} className="tp-node-row" data-node-id={n.id} data-status={n.status}>
-                <span className="tp-node-status" style={{ color: statusColor(n.status) }}>
-                  ●
-                </span>
-                <span className="tp-node-title">{n.title}</span>
-                <span className="tp-node-role">{n.role}</span>
-                <span className="tp-node-meta">
-                  {n.status === "running" && n.bytes ? `${n.bytes}b…` : null}
-                  {n.status === "ok" && n.durationMs != null
-                    ? `${n.durationMs}ms · ${n.bytes ?? 0}b`
-                    : null}
-                  {n.status === "error" ? n.error : null}
-                  {n.status === "idle" ? STATUS_LABEL.idle : null}
-                </span>
-              </li>
+          <div className="tp-stages" data-test-panel-stages>
+            {levelPlan.error && <div className="tp-stage-error">{levelPlan.error}; showing all nodes together.</div>}
+            {stageGroups.map((stage) => (
+              <section key={stage.index} className="tp-stage" data-test-panel-stage={stage.index}>
+                <div className="tp-stage-header">
+                  <span>Step {stage.index + 1}</span>
+                  <span>{stage.rows.length} node{stage.rows.length === 1 ? "" : "s"}</span>
+                </div>
+                <ul className="tp-nodes" data-test-panel-nodes>
+                  {stage.rows.map((n) => (
+                    <li key={n.id} className="tp-node-row" data-node-id={n.id} data-status={n.status}>
+                      <span className="tp-node-status" style={{ color: statusColor(n.status) }}>
+                        ●
+                      </span>
+                      <span className="tp-node-title">{n.title}</span>
+                      <span className="tp-node-role">{n.role}</span>
+                      <span className="tp-node-meta">
+                        {n.status === "running" && n.bytes ? `${n.bytes}b...` : null}
+                        {n.status === "ok" && n.durationMs != null
+                          ? `${n.durationMs}ms · ${n.bytes ?? 0}b`
+                          : null}
+                        {n.status === "error" ? n.error : null}
+                        {n.status === "idle" ? STATUS_LABEL.idle : null}
+                      </span>
+                      <button
+                        type="button"
+                        className="tp-info-btn"
+                        title={nodeModelMessage(n)}
+                        aria-label={`Show model for ${n.title}`}
+                        onClick={() => alert(nodeModelMessage(n))}
+                      >
+                        i
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
 
           {(brief || runDir) && (
             <div className="tp-result" data-test-panel-result>
@@ -588,14 +760,13 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
 
       <style jsx>{`
         .test-panel {
-          position: absolute;
-          left: 0;
-          right: 0;
-          bottom: 0;
+          position: relative;
+          width: 100%;
+          flex: 0 0 auto;
           background: var(--surface);
           border-top: 1px solid var(--border);
           z-index: 6;
-          max-height: 60vh;
+          max-height: min(42vh, 340px);
           display: flex;
           flex-direction: column;
         }
@@ -619,6 +790,7 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
         .test-panel-body {
           padding: 12px 18px 14px;
           overflow-y: auto;
+          min-height: 0;
           display: flex;
           flex-direction: column;
           gap: 10px;
@@ -678,6 +850,7 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
         .tp-actions {
           display: flex;
           gap: 8px;
+          flex-wrap: wrap;
         }
         .tp-run {
           color: var(--accent-strong);
@@ -686,6 +859,18 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
         .tp-cancel {
           color: var(--danger, #b00020);
           border-color: var(--danger, #b00020);
+        }
+        .tp-run-status {
+          padding: 7px 10px;
+          background: var(--surface-muted, #f4f3ee);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          color: var(--muted);
+          font-size: 12px;
+        }
+        .tp-run-status.is-blocked {
+          background: var(--policy-soft, #fff7e0);
+          color: var(--ink);
         }
         .tp-warnings {
           margin: 0;
@@ -708,20 +893,50 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
           font-size: 12px;
           color: var(--danger, #b00020);
         }
+        .tp-stages {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .tp-stage {
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          overflow: hidden;
+          background: var(--surface);
+        }
+        .tp-stage-header {
+          min-height: 28px;
+          padding: 6px 10px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          background: var(--surface-muted, #f4f3ee);
+          border-bottom: 1px solid var(--border);
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--muted);
+        }
+        .tp-stage-error {
+          padding: 7px 10px;
+          border: 1px solid var(--danger, #b00020);
+          border-radius: 8px;
+          color: var(--danger, #b00020);
+          background: var(--danger-soft, #fde7ea);
+          font-size: 12px;
+        }
         .tp-nodes {
           margin: 0;
           padding: 0;
           list-style: none;
           display: flex;
           flex-direction: column;
-          gap: 2px;
-          border: 1px solid var(--border);
-          border-radius: 8px;
           overflow: hidden;
         }
         .tp-node-row {
           display: grid;
-          grid-template-columns: 18px 1fr 90px 1fr;
+          grid-template-columns: 18px minmax(0, 1fr) 90px minmax(96px, 1fr) 28px;
           align-items: center;
           gap: 8px;
           padding: 6px 10px;
@@ -738,6 +953,10 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
         .tp-node-title {
           font-weight: 500;
           color: var(--ink);
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .tp-node-role {
           font-size: 10px;
@@ -750,6 +969,43 @@ export default function TestPanel({ project, isOpen, onToggle, locked = false, o
           font-size: 11px;
           color: var(--muted);
           text-align: right;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .tp-info-btn {
+          width: 24px;
+          height: 24px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          background: var(--surface);
+          color: var(--muted);
+          font: inherit;
+          font-size: 11px;
+          cursor: pointer;
+        }
+        .tp-info-btn:hover {
+          border-color: var(--accent);
+          color: var(--accent-strong);
+        }
+        @media (max-width: 760px) {
+          .test-panel-body {
+            padding: 10px 12px 12px;
+          }
+          .tp-field {
+            min-width: 100%;
+          }
+          .tp-node-row {
+            grid-template-columns: 18px minmax(0, 1fr) 64px 28px;
+          }
+          .tp-node-meta {
+            grid-column: 2 / 5;
+            text-align: left;
+          }
         }
         .tp-result {
           display: flex;

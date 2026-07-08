@@ -135,7 +135,7 @@ export default function OnboardingWizard({
                 >
                   <span className="ow-opt-title">Start from a pattern</span>
                   <span className="ow-opt-desc">
-                    Bootstrap a project from one of four canonical agent shapes.
+                    Bootstrap a project from a canonical agent shape.
                   </span>
                 </button>
               </li>

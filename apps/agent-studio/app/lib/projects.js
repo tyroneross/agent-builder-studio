@@ -122,6 +122,112 @@ export function seedCanvas() {
   return canvasFromPattern(_soloPattern);
 }
 
+const INSTRUCTION_DRAFT_MODES = new Set(["none", "quick", "detailed"]);
+
+export function normalizeInstructionDraftMode(mode) {
+  return INSTRUCTION_DRAFT_MODES.has(mode) ? mode : "quick";
+}
+
+function listOrFallback(items, fallback) {
+  return Array.isArray(items) && items.length
+    ? items.map((item) => `\`${item}\``).join(", ")
+    : fallback;
+}
+
+function toolName(tool) {
+  if (typeof tool === "string" && tool.trim()) return tool.trim();
+  if (tool && typeof tool === "object" && typeof tool.name === "string" && tool.name.trim()) {
+    return tool.name.trim();
+  }
+  return "unnamed tool";
+}
+
+function projectBrief({ goal, context, outcome }) {
+  const rows = [];
+  if (goal?.trim()) rows.push(`Goal: ${goal.trim()}`);
+  if (context?.trim()) rows.push(`Context: ${context.trim()}`);
+  if (outcome?.trim()) rows.push(`Success: ${outcome.trim()}`);
+  return rows.length ? rows.join("\n") : "Goal: Use the current project goal and upstream node outputs.";
+}
+
+export function buildNodeDraftInstructions(node, mode = "quick", project = {}) {
+  const draftMode = normalizeInstructionDraftMode(mode);
+  if (draftMode === "none") return "";
+  const role = node.role || "agent";
+  const title = node.title || node.id || "Node";
+  const description = node.description || "Perform this graph step.";
+  const inputs = listOrFallback(node.inputs, "project goal, context, and upstream outputs");
+  const outputs = listOrFallback(node.outputs, "a concise result for downstream nodes");
+  const tools = Array.isArray(node.tools) && node.tools.length
+    ? node.tools.map((tool) => `\`${toolName(tool)}\``).join(", ")
+    : "none unless added by the operator";
+
+  if (draftMode === "quick") {
+    return [
+      `Draft instructions for ${title}`,
+      "",
+      projectBrief(project),
+      "",
+      `Role: ${role}.`,
+      `Purpose: ${description}`,
+      `Use inputs: ${inputs}.`,
+      `Use tools: ${tools}.`,
+      `Return outputs: ${outputs}.`,
+      "",
+      "Keep the result specific, cite or name any source material you relied on, and stop with a clear blocker if required input or permission is missing.",
+    ].join("\n");
+  }
+
+  return [
+    `# ${title} Draft Instructions`,
+    "",
+    "## Project Brief",
+    projectBrief(project),
+    "",
+    "## Node Mission",
+    `Act as the ${role} for this graph step. ${description}`,
+    "",
+    "## Inputs To Read",
+    `- Declared inputs: ${inputs}.`,
+    "- Pull relevant upstream outputs from the run context before asking the user for more information.",
+    "- Preserve source names, file paths, URLs, dates, or node IDs when they support a claim.",
+    "",
+    "## Work Loop",
+    "1. Restate the immediate node task in one sentence.",
+    "2. Identify missing inputs, permissions, or tools before doing work.",
+    "3. Use only the declared tool scope unless the operator explicitly expands it.",
+    "4. Produce the node output in a shape downstream nodes can reuse.",
+    "5. Include a blocker summary instead of guessing when evidence is missing.",
+    "",
+    "## Output Contract",
+    `- Required outputs: ${outputs}.`,
+    "- Include a short rationale and any source evidence needed to audit the result.",
+    "- Keep speculative or unsupported material separate from accepted output.",
+    "",
+    "## Guardrails",
+    `- Tool scope: ${tools}.`,
+    `- Permission default: ${node.permission || "ask-first"}.`,
+    "- Do not invent facts, credentials, file contents, or external results.",
+    "- Ask for approval before writes, network calls, shell execution, or irreversible side effects unless this node explicitly allows them.",
+  ].join("\n");
+}
+
+export function draftCanvasInstructions(canvas, mode = "quick", project = {}) {
+  const draftMode = normalizeInstructionDraftMode(mode);
+  if (draftMode === "none") return canvas;
+  if (!canvas || !Array.isArray(canvas.nodes)) return canvas;
+  return {
+    ...canvas,
+    nodes: canvas.nodes.map((node) => {
+      if (typeof node.instructions === "string" && node.instructions.trim()) return node;
+      return {
+        ...node,
+        instructions: buildNodeDraftInstructions(node, draftMode, project),
+      };
+    }),
+  };
+}
+
 export function makeProject({
   name,
   workingFolder = "",
@@ -135,8 +241,15 @@ export function makeProject({
   snapshots = [],
   memory = {},
   validationProfile = "personal",
+  instructionDraftMode = "none",
   canvas,
 } = {}) {
+  const normalizedCanvas = normalizeCanvas(canvas || seedCanvas());
+  const draftedCanvas = draftCanvasInstructions(normalizedCanvas, instructionDraftMode, {
+    goal,
+    context,
+    outcome,
+  });
   return {
     id: makeProjectId(),
     name: name || "Untitled project",
@@ -157,7 +270,7 @@ export function makeProject({
     validationProfile: typeof validationProfile === "string" ? validationProfile : "personal",
     // Normalize so a fresh project is fully canonical — every node carries the
     // governance fields (tools/permission), not just projects read from storage.
-    canvas: normalizeCanvas(canvas || seedCanvas()),
+    canvas: draftedCanvas,
   };
 }
 

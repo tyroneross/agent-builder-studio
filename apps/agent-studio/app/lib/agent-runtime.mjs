@@ -18,10 +18,10 @@
 //   { type: "warmup-fail", error }
 //   { type: "warning", text }
 //   { type: "level-start", level, nodeIds }
-//   { type: "node-start", id, name, role }
+//   { type: "node-start", id, name, role, model }
 //   { type: "node-chunk", id, bytes }                 // running byte count of streamed body
-//   { type: "node-end", id, durationMs, bytes, parsed, output }
-//   { type: "node-error", id, error }
+//   { type: "node-end", id, durationMs, bytes, parsed, output, model }
+//   { type: "node-error", id, error, model }
 //   { type: "complete", transcript, brief }
 //
 // Cycle detection: throws Error("graph has cycles: <list>") before any LLM call.
@@ -592,7 +592,7 @@ export async function runProject({
         chunk.map(async (id) => {
           const node = nodeById.get(id);
           if (!node) return;
-          onEvent({ type: "node-start", id, name: node.title, role: node.role });
+          onEvent({ type: "node-start", id, name: node.title, role: node.role, model: resolvedModel });
           const t0 = Date.now();
           try {
             // Pass 18 — subagent role. Recursively run the referenced
@@ -623,11 +623,12 @@ export async function runProject({
                 text: subResult.text,
                 subagent: subResult.subagent,
                 error: subResult.error ?? null,
+                model: resolvedModel,
                 systemPrompt: "",
                 userMessage: "",
               });
               if (subResult.error) {
-                onEvent({ type: "node-error", id, error: subResult.error });
+                onEvent({ type: "node-error", id, error: subResult.error, model: resolvedModel });
               } else {
                 onEvent({
                   type: "node-end",
@@ -636,6 +637,7 @@ export async function runProject({
                   bytes: subResult.bytes,
                   parsed: subResult.parsed,
                   output: subResult.text,
+                  model: resolvedModel,
                   subagent: subResult.subagent,
                 });
               }
@@ -665,6 +667,7 @@ export async function runProject({
                 parsed,
                 text,
                 mocked: true,
+                model: resolvedModel,
                 systemPrompt,
                 userMessage,
               });
@@ -675,6 +678,7 @@ export async function runProject({
                 bytes,
                 parsed,
                 output: text,
+                model: resolvedModel,
                 mocked: true,
               });
               return;
@@ -696,6 +700,7 @@ export async function runProject({
               bytes,
               parsed,
               text,
+              model: resolvedModel,
               systemPrompt,
               userMessage,
             });
@@ -706,6 +711,7 @@ export async function runProject({
               bytes,
               parsed,
               output: text,
+              model: resolvedModel,
             });
           } catch (err) {
             const durationMs = Date.now() - t0;
@@ -717,9 +723,10 @@ export async function runProject({
               bytes: 0,
               parsed: null,
               text: "",
+              model: resolvedModel,
               error: err.message || String(err),
             });
-            onEvent({ type: "node-error", id, error: err.message || String(err) });
+            onEvent({ type: "node-error", id, error: err.message || String(err), model: resolvedModel });
           }
         }),
       );
@@ -746,6 +753,7 @@ export async function runProject({
         parsed: r?.parsed ?? null,
         output: r?.text ?? "",
         error: r?.error ?? null,
+        model: r?.model ?? resolvedModel,
         // Pass 15 — inspector context. Only present for nodes that actually
         // ran (results entry exists). Mocked nodes carry `mocked: true` so
         // the panel can show a badge without sniffing the payload.

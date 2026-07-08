@@ -1,56 +1,112 @@
-# agent-builder-studio
+# Agent Builder Studio
 
-One app for the agent **design → run → package** lifecycle: a visual canvas
-(Studio) that authors a governed spec and runs it live, backed by a deterministic
-packaging engine (Builder). Local-first by default everywhere.
+Agent Builder Studio is the local-first workspace for the agent design, run,
+and package lifecycle. The canonical app is the Studio canvas at
+`apps/agent-studio`; the old Builder UI is now a signpost and tooling host.
 
-**Architecture principle (from build-loop-memory's AI-first data architecture):**
-the **agent spec is the single source of truth**; the canvas layout, run
-transcripts, and the generated package are all **derived, rebuildable
-projections**. Never make a derived layer the source of truth.
+The agent spec is the single source of truth. Canvas state, run transcripts,
+and generated packages are derived projections that can be rebuilt from the
+spec.
 
-> **In-progress merge:** `agent-builder` and `agent-studio` are being collapsed
-> into a single `apps/studio` app, with Builder's generation engine extracted to
-> `packages/agent-pack`. Phased, with compile+test gates between phases. The
-> table below reflects the current (mid-merge) state.
+## Launch
+
+From the repo root:
+
+```bash
+npm install
+npm run dev
+```
+
+Open `http://localhost:3030`.
+
+Useful root commands:
+
+| Command | Opens or runs | Port |
+|---|---|---|
+| `npm run dev` | Agent Builder Studio canvas | 3030 |
+| `npm run dev:studio` | Same as `npm run dev` | 3030 |
+| `npm run dev:builder-signpost` | Retired Builder UI signpost plus legacy tooling host | 3028 |
+| `npm run dev:meetings` | Meetings analyzer side app | 3032 |
+| `npm run dev:investments` | Investments review side app | 3033 |
+| `npm run dev:cos` | Next.js Chief of Staff side app | 3034 |
+| `npm run dev:chief-of-staff` | Legacy Node Chief of Staff server | 3031 |
+| `npm test` | Deterministic package and app tests | n/a |
+
+## Current Scaffold
 
 | Path | Role |
 |---|---|
-| `apps/agent-builder` | Workbench: design, evaluate, package agent graphs (Next.js, :3028) — being folded into Studio |
-| `apps/agent-studio` | Runtime canvas: run/test agent graphs live with SSE (Next.js, :3030) — the host UI |
-| `apps/chief-of-staff` | Standalone shipped product (Node HTTP server, :3031) — stays separate |
-| `packages/agent-spec` | Shared spec contract (single source of truth): schema, validate, unified role enum, YAML, defaults |
-| `packages/local-llm` | Shared local-first LLM client: MLX-first, Ollama fallback, key-gated cloud |
+| `apps/agent-studio` | Primary product. Next.js Studio canvas for designing, running, inspecting, and packaging agent graphs. |
+| `apps/agent-builder` | Legacy Builder shell. The interactive UI is retired; this app remains for the signpost page, plugin companion, agent structures, DoE, sandbox, and artifact tooling. |
+| `apps/meetings` | Extracted meetings analyzer side app. |
+| `apps/investments` | Extracted investment review side app. |
+| `apps/cos` | Extracted Next.js Chief of Staff side app. |
+| `apps/chief-of-staff` | Older standalone Node Chief of Staff server retained for compatibility. |
+| `packages/agent-spec` | Shared schema, validation, YAML, defaults, and role vocabulary. |
+| `packages/agent-pack` | Deterministic spec-to-package engine used by Studio exports. |
+| `packages/agent-artifacts` | Local artifact staging and promotion helpers. |
+| `packages/local-llm` | Local-first LLM client: MLX primary, Ollama fallback, cloud key-gated on failure. |
+| `docs/REPO_STRUCTURE.md` | Scaffold map, launch map, and cleanup plan. |
+| `archive/` and app-local `archive/` folders | Reversibility bundles from the repo consolidation. |
 
-## One install builds + tests everything
+## Clean-Sheet Target
 
-```bash
-npm install        # links all workspaces (packages + apps)
-npm test           # deterministic suite: packages + agent-builder + chief-of-staff + studio roundtrip
-npm run test:live  # adds studio test:self (needs a live Ollama server)
+If this were designed from scratch, the root would have one obvious product
+entrypoint and supporting packages:
+
+```text
+agent-builder-studio/
+  apps/
+    agent-studio/       # canonical product app today
+    meetings/           # side app
+    investments/        # side app
+    cos/                # side app
+    agent-builder/      # legacy tooling/signpost until fully extracted
+  packages/
+    agent-spec/
+    agent-pack/
+    agent-artifacts/
+    local-llm/
+  docs/
+    REPO_STRUCTURE.md
+  archive/
 ```
 
-Per-app build/deploy stays independent:
+The future cleanup can rename `apps/agent-studio` to `apps/studio`, but that
+should be a dedicated migration because it touches workspace package names,
+CI, docs, app URLs, and historical references. Until then, `apps/agent-studio`
+is the authoritative launch target.
+
+## Test And Build
 
 ```bash
-npm run build --workspace agent-builder   # Next.js
-npm run build --workspace agent-studio    # Next.js
-npm run build --workspace chief-of-staff  # syntax check
+npm test
+npm run test:live        # includes live Studio self-test; requires local model server
+npm run build:studio
+npm run build:builder-signpost
+npm run build:chief-of-staff
 ```
 
-## Local-first posture
+Per-app builds still work:
 
-- **MLX-first local lane** (`@tyroneross/local-llm`): `mlx_lm.server` (OpenAI-compatible,
-  127.0.0.1:8080) is the local primary; Ollama is the fallback; cloud lanes
-  (groq/anthropic/openai) are key-gated and consulted on-failure only.
-- A local lane is dropped when its server is unhealthy — the local mirror of
-  cloud key-gating.
-- chief-of-staff retains its deterministic no-LLM fallback.
+```bash
+npm run build --workspace agent-studio
+npm run build --workspace agent-builder
+npm run build --workspace chief-of-staff
+```
+
+## Local-First Posture
+
+- `@tyroneross/local-llm` uses MLX on `127.0.0.1:8080` as the local primary
+  lane, Ollama on `localhost:11434` as the local fallback, and cloud lanes only
+  when keys are present and local lanes fail.
+- Studio stores project state in the browser and writes run artifacts to the
+  selected local working folder.
+- Chief of Staff retains deterministic no-LLM fallback behavior.
 
 ## Provenance
 
-Consolidated 2026-06-09 from three standalone repos (agent-builder, agent-studio,
-chief-of-staff) via `git subtree`, preserving each app's full history. The source
-repos remain in place (with a pointer here) and hold pre-migration reversibility
-bundles under their `archive/`. agent-builder's `plugin/` companion keeps its
-strict no-import boundary (CI-enforced).
+This repo was consolidated on 2026-06-09 from standalone `agent-builder`,
+`agent-studio`, and `chief-of-staff` repos using subtree-style history
+preservation. Reversibility bundles live under `archive/` and the app-local
+`archive/` directories.

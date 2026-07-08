@@ -9,7 +9,10 @@
 
 import assert from "node:assert/strict";
 import {
+  draftCanvasInstructions,
+  buildNodeDraftInstructions,
   makeProject,
+  normalizeInstructionDraftMode,
   normalizeNode,
   normalizeProject,
   STORAGE_VERSION,
@@ -68,5 +71,66 @@ const authoredProject = normalizeProject({ ...v6project, validationProfile: "ent
 assert.equal(authoredProject.validationProfile, "enterprise");
 assert.deepEqual(authoredProject.memory, { persistent: "vector" });
 ok("normalizeProject preserves authored validationProfile + memory");
+
+// 6. Instruction drafts are opt-in so legacy creation still starts blank.
+const blankCanvas = {
+  nodes: [{
+    id: "research",
+    role: "agent",
+    title: "Research Agent",
+    description: "Collect and reconcile source material.",
+    inputs: ["source_manifest"],
+    outputs: ["claim_table"],
+    instructions: "",
+  }],
+  edges: [],
+  pan: { x: 0, y: 0 },
+  zoom: 1,
+};
+const noDraftProject = makeProject({ name: "No Draft", canvas: blankCanvas });
+assert.equal(noDraftProject.canvas.nodes[0].instructions, "");
+ok("makeProject leaves node instructions blank unless drafting is requested");
+
+// 7. Quick drafts seed runnable node instructions from project + node metadata.
+const quickDraftProject = makeProject({
+  name: "Draft",
+  goal: "Research earnings calls",
+  context: "Focus on factual support.",
+  outcome: "Auditable claims table.",
+  canvas: blankCanvas,
+  instructionDraftMode: "quick",
+});
+const quickInstructions = quickDraftProject.canvas.nodes[0].instructions;
+assert.match(quickInstructions, /Draft instructions for Research Agent/);
+assert.match(quickInstructions, /Goal: Research earnings calls/);
+assert.match(quickInstructions, /Use inputs: `source_manifest`\./);
+assert.match(quickInstructions, /Return outputs: `claim_table`\./);
+ok("quick instruction drafts include project brief, inputs, and outputs");
+
+// 8. Detailed drafts expose the reviewable sections operators need to assess.
+const detailedInstructions = buildNodeDraftInstructions(
+  normalizeNode(blankCanvas.nodes[0]),
+  "detailed",
+  { goal: "Research earnings calls" },
+);
+assert.match(detailedInstructions, /# Research Agent Draft Instructions/);
+assert.match(detailedInstructions, /## Work Loop/);
+assert.match(detailedInstructions, /## Output Contract/);
+assert.match(detailedInstructions, /## Guardrails/);
+ok("detailed instruction drafts include work loop, output contract, and guardrails");
+
+// 9. Drafting fills only blank instructions and preserves authored prompts.
+const mixedCanvas = draftCanvasInstructions({
+  ...blankCanvas,
+  nodes: [
+    { ...blankCanvas.nodes[0], id: "blank", instructions: "" },
+    { ...blankCanvas.nodes[0], id: "authored", instructions: "Keep this prompt." },
+  ],
+}, "quick", { goal: "Research earnings calls" });
+assert.notEqual(mixedCanvas.nodes[0].instructions, "");
+assert.equal(mixedCanvas.nodes[1].instructions, "Keep this prompt.");
+assert.equal(normalizeInstructionDraftMode("bogus"), "quick");
+assert.equal(normalizeInstructionDraftMode("none"), "none");
+ok("draftCanvasInstructions preserves authored prompts and normalizes modes");
 
 console.log(`\nall ${passed} v7 schema checks passed`);

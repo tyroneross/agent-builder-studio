@@ -66,6 +66,7 @@ export default function SetupConversation({
   const [name, setName] = useState("");
   const [workingFolder, setWorkingFolder] = useState("");
   const [folderValidated, setFolderValidated] = useState(false);
+  const [instructionDraftMode, setInstructionDraftMode] = useState("quick");
   const folderTouchedRef = useRef(false);
   const goalTextareaRef = useRef(null);
 
@@ -264,6 +265,7 @@ export default function SetupConversation({
       uploads: [],
       canvas,
       seedPatternId: suggestion.pattern,
+      instructionDraftMode,
     });
   }
 
@@ -532,6 +534,36 @@ export default function SetupConversation({
               </div>
             </div>
 
+            <div className="sc-field" data-setup-summary-field="draft-mode">
+              <span className="sc-label">Draft instructions</span>
+              <div
+                className="sc-segmented"
+                role="group"
+                aria-label="Draft instruction depth"
+                data-setup-draft-mode-group
+              >
+                <button
+                  type="button"
+                  className={`sc-segment${instructionDraftMode === "quick" ? " sc-segment-active" : ""}`}
+                  onClick={() => setInstructionDraftMode("quick")}
+                  data-setup-draft-mode="quick"
+                >
+                  Quick
+                </button>
+                <button
+                  type="button"
+                  className={`sc-segment${instructionDraftMode === "detailed" ? " sc-segment-active" : ""}`}
+                  onClick={() => setInstructionDraftMode("detailed")}
+                  data-setup-draft-mode="detailed"
+                >
+                  Detailed
+                </button>
+              </div>
+              <p className="sc-help">
+                Prefill every node so the draft agent can run immediately.
+              </p>
+            </div>
+
             <div className="sc-field" data-setup-summary-field="folder">
               <WorkingFolderInput
                 value={workingFolder}
@@ -567,7 +599,7 @@ export default function SetupConversation({
               disabled={!!submitBlockedReason}
               data-setup-create
             >
-              Create project
+              {instructionDraftMode === "detailed" ? "Create detailed draft" : "Create quick draft"}
             </button>
             <button
               type="button"
@@ -719,6 +751,42 @@ export default function SetupConversation({
         .sc-blocked {
           font-size: 12px;
           color: var(--muted);
+        }
+        .sc-help {
+          margin: 0;
+          font-size: 12px;
+          line-height: 1.4;
+          color: var(--muted);
+        }
+        .sc-segmented {
+          display: inline-grid;
+          grid-template-columns: repeat(2, minmax(92px, 1fr));
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          overflow: hidden;
+          width: min(100%, 240px);
+        }
+        .sc-segment {
+          height: 34px;
+          border: 0;
+          border-right: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--muted);
+          font-family: inherit;
+          font-size: 13px;
+          cursor: pointer;
+        }
+        .sc-segment:last-child {
+          border-right: 0;
+        }
+        .sc-segment:hover {
+          color: var(--ink);
+          background: var(--bg, transparent);
+        }
+        .sc-segment-active {
+          color: var(--accent-strong);
+          background: var(--accent-soft);
+          font-weight: 600;
         }
         .sc-spinner {
           width: 18px;

@@ -1,9 +1,10 @@
+import { PATTERNS } from "@tyroneross/agent-pack";
+
 // POST /api/setup/suggest
 //
 // Pass 12 — Inline LLM-conversational setup.
 //
-// Body: { goal: string, preferredPattern?: "solo-tool-agent" | "approval-workflow"
-//                                          | "research-orchestrator" | "evaluator-optimizer" }
+// Body: { goal: string, preferredPattern?: one shared agent-pack pattern ID }
 //
 // Response (200, JSON):
 //   - { ok: true, name, pattern, summary, questions: [{ id, prompt, type, optional }] }
@@ -12,7 +13,7 @@
 // One non-streaming Ollama /api/chat round-trip with format:"json". The caller
 // turns the returned shape into a chat-style question flow on the client. We
 // stay grounded: the system prompt forbids filler questions and constrains the
-// pattern field to one of four valid IDs.
+// pattern field to one of the shared agent-pack pattern IDs.
 //
 // Defensive — never throws past the route boundary; surfaces all failure
 // paths as { ok:false, reason } with a 200 status so the client can swap to
@@ -25,12 +26,11 @@ const DEFAULT_MODEL =
   (typeof process !== "undefined" && process.env && process.env.OLLAMA_MODEL) ||
   "gpt-oss:20b";
 
-const VALID_PATTERNS = new Set([
-  "solo-tool-agent",
-  "approval-workflow",
-  "research-orchestrator",
-  "evaluator-optimizer",
-]);
+const VALID_PATTERNS = new Set(PATTERNS.map((pattern) => pattern.id));
+const PATTERN_ENUM = PATTERNS.map((pattern) => `"${pattern.id}"`).join(" | ");
+const PATTERN_GUIDANCE = PATTERNS
+  .map((pattern) => `    ${pattern.id.padEnd(24)} — ${pattern.short}`)
+  .join("\n");
 
 const QUESTION_TYPES = new Set(["text", "longtext"]);
 
@@ -48,7 +48,7 @@ function buildSystemPrompt(preferredPattern) {
     `You are setting up a local agent project. The user has typed a one-line goal.`,
     `Return ONE JSON object — no prose, no code fences — with EXACTLY these keys:`,
     `  name:     string, kebab-case-ish display name describing the agent (≤40 chars).`,
-    `  pattern:  one of "solo-tool-agent" | "approval-workflow" | "research-orchestrator" | "evaluator-optimizer".`,
+    `  pattern:  one of ${PATTERN_ENUM}.`,
     `  summary:  one sentence that restates the user's goal back to them.`,
     `  questions: 1 to 3 clarifying questions, ordered by importance.`,
     ``,
@@ -62,10 +62,7 @@ function buildSystemPrompt(preferredPattern) {
     `    "outcome"     — what success or done looks like (longtext)`,
     `    "background"  — alias for context if you need a second context-flavored question`,
     `- Pattern guidance:`,
-    `    solo-tool-agent       — one agent + a few tools, narrow scope, single user.`,
-    `    approval-workflow     — deterministic steps with a human gate before side effects.`,
-    `    research-orchestrator — branch out into sub-questions, gather evidence, synthesize.`,
-    `    evaluator-optimizer   — generate-then-critique-then-revise loop.`,
+    PATTERN_GUIDANCE,
     `- ${patternHint}`,
     `- Keep "name" specific. Avoid "agent assistant" or "helper". Prefer naming the actor and the job.`,
     ``,

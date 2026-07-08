@@ -33,7 +33,14 @@ export async function GET() {
       .filter(isChatModel)
       .map((m) => m?.name)
       .filter((name) => typeof name === "string");
-    return Response.json({ ok: true, models, baseUrl });
+    const modelOptions = models.map((name) => ({
+      id: name,
+      label: name,
+      provider: "ollama",
+      source: "local",
+      available: true,
+    }));
+    return Response.json({ ok: true, models, modelOptions, baseUrl });
   } catch (err) {
     return Response.json(
       {

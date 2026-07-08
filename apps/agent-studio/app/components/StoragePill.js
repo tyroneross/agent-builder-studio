@@ -57,7 +57,7 @@ export default function StoragePill({ onOpen, bytesPerRecentSave = 0, refreshKey
   let dotClass = "dot-unknown";
 
   if (state === "ok") {
-    label = "Plenty of room";
+    label = "Storage ok";
     dotClass = "dot-ok";
   } else if (state === "warn") {
     label = "Getting full";
@@ -66,10 +66,10 @@ export default function StoragePill({ onOpen, bytesPerRecentSave = 0, refreshKey
     if (left != null) savesLine = `~${left} save${left === 1 ? "" : "s"} left`;
     else savesLine = "a few saves left";
   } else if (state === "block") {
-    label = "Almost out — manage storage";
+    label = "Storage full";
     dotClass = "dot-block";
   } else {
-    label = "Storage: unknown";
+    label = "Storage unknown";
     dotClass = "dot-unknown";
   }
 
@@ -92,7 +92,8 @@ export default function StoragePill({ onOpen, bytesPerRecentSave = 0, refreshKey
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          padding: 4px 10px;
+          height: 32px;
+          padding: 0 10px;
           border-radius: 999px;
           border: 1px solid var(--border);
           background: var(--surface);
@@ -101,6 +102,8 @@ export default function StoragePill({ onOpen, bytesPerRecentSave = 0, refreshKey
           cursor: pointer;
           font-weight: 500;
           line-height: 1.2;
+          white-space: nowrap;
+          flex: 0 0 auto;
         }
         .storage-pill:hover {
           border-color: var(--accent);
@@ -131,10 +134,12 @@ export default function StoragePill({ onOpen, bytesPerRecentSave = 0, refreshKey
         }
         .storage-label {
           color: var(--ink);
+          white-space: nowrap;
         }
         .storage-extra {
           color: var(--muted);
           font-weight: 400;
+          white-space: nowrap;
         }
       `}</style>
     </button>

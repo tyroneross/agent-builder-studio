@@ -43,6 +43,7 @@ export default function NewProjectForm({
   const [context, setContext] = useState("");
   const [outcome, setOutcome] = useState("");
   const [uploads, setUploads] = useState([]);
+  const [instructionDraftMode, setInstructionDraftMode] = useState("quick");
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const folderTouchedRef = useRef(false);
 
@@ -191,6 +192,7 @@ export default function NewProjectForm({
       uploads,
       canvas,
       seedPatternId: seedPattern?.id,
+      instructionDraftMode,
     });
   }
 
@@ -273,6 +275,31 @@ export default function NewProjectForm({
         </label>
       </div>
 
+      <section className="np-draft" data-new-project-draft-mode-group>
+        <div className="np-draft-head">
+          <span className="np-label">Draft instructions</span>
+          <span className="np-draft-help">Prefill node prompts before opening the canvas.</span>
+        </div>
+        <div className="np-segmented" role="group" aria-label="Draft instruction depth">
+          <button
+            type="button"
+            className={`np-segment${instructionDraftMode === "quick" ? " np-segment-active" : ""}`}
+            onClick={() => setInstructionDraftMode("quick")}
+            data-new-project-draft-mode="quick"
+          >
+            Quick
+          </button>
+          <button
+            type="button"
+            className={`np-segment${instructionDraftMode === "detailed" ? " np-segment-active" : ""}`}
+            onClick={() => setInstructionDraftMode("detailed")}
+            data-new-project-draft-mode="detailed"
+          >
+            Detailed
+          </button>
+        </div>
+      </section>
+
       <section className="np-uploads" data-new-project-uploads>
         <h3 className="np-uploads-title">Context files (optional)</h3>
         <p className="np-uploads-help">
@@ -294,7 +321,7 @@ export default function NewProjectForm({
           disabled={!!submitBlockedReason}
           data-new-project-submit
         >
-          create project
+          {instructionDraftMode === "detailed" ? "create detailed draft" : "create quick draft"}
         </button>
         {onCancel && (
           <button type="button" className="tool-btn" onClick={onCancel} data-new-project-cancel>
@@ -353,6 +380,57 @@ export default function NewProjectForm({
         .np-uploads-help code {
           font-family: ui-monospace, "SF Mono", Menlo, monospace;
           font-size: 11px;
+        }
+        .np-draft {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 12px 14px;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          background: var(--surface);
+          flex-wrap: wrap;
+        }
+        .np-draft-head {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+        }
+        .np-draft-help {
+          font-size: 12px;
+          color: var(--muted);
+          line-height: 1.4;
+        }
+        .np-segmented {
+          display: inline-grid;
+          grid-template-columns: repeat(2, minmax(88px, 1fr));
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          overflow: hidden;
+          min-width: 190px;
+        }
+        .np-segment {
+          height: 34px;
+          border: 0;
+          border-right: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--muted);
+          font-family: inherit;
+          font-size: 13px;
+          cursor: pointer;
+        }
+        .np-segment:last-child {
+          border-right: 0;
+        }
+        .np-segment:hover {
+          color: var(--ink);
+          background: var(--bg, transparent);
+        }
+        .np-segment-active {
+          color: var(--accent-strong);
+          background: var(--accent-soft);
+          font-weight: 600;
         }
         .np-grid {
           display: flex;
