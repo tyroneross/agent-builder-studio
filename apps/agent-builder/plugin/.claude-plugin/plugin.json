@@ -2,7 +2,10 @@
   "name": "agent-builder",
   "version": "0.4.0",
   "description": "Standalone plugin companion for designing, evaluating, building, packaging, and deploying agentic harnesses, skills, and plugins with dual-format (Claude + AGENTS.md) output, polyglot scaffolding, repo structure, reusable skills, skill banks, and cross-host contracts",
-  "author": { "name": "Tyrone Ross" },
+  "author": {
+    "name": "Tyrone Ross",
+    "url": "https://github.com/tyroneross"
+  },
   "homepage": "https://github.com/tyroneross/agent-builder/tree/main/plugin",
   "repository": "https://github.com/tyroneross/agent-builder",
   "license": "Apache-2.0",
