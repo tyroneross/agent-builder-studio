@@ -6,7 +6,7 @@
   "type": "cli",
   "entry": {
     "kind": "cli",
-    "path": "/Users/tyroneross/dev/git-folder/agent-builder-studio/examples/sample-external-tool",
+    "path": "/path/to/agent-builder-studio/examples/sample-external-tool",
     "devCommand": "node examples/sample-external-tool/index.mjs"
   },
   "capabilities": ["sample-greeting", "text-summary"],

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -16,7 +16,7 @@ test("agent-tool.json satisfies the tool manifest contract", () => {
   assert.equal(manifest.id, "sample-external-cli");
   assert.equal(manifest.type, "cli");
   assert.equal(manifest.entry.kind, "cli");
-  assert.equal(manifest.entry.path, toolDir);
+  assert.ok(isAbsolute(manifest.entry.path));
 });
 
 test("index.mjs summarizes argument input", () => {

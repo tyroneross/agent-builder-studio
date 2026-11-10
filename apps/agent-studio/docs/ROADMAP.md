@@ -495,4 +495,4 @@ The orchestrator reads this doc, picks the section for that pass, and follows it
 
 ---
 
-_Last updated 2026-04-28 (reframed: portable editor + verification lens). After Pass 12, before Pass 13. Repo: https://github.com/tyroneross/agent-studio._
+_Last updated 2026-04-28 (reframed: portable editor + verification lens). After Pass 12, before Pass 13. Repo: https://github.com/tyroneross/agent-studio (archived)._

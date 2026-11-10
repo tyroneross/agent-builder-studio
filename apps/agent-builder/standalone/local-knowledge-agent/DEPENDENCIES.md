@@ -49,10 +49,10 @@ ollama pull bge-m3
 
 Purpose: local parsing for richer PDFs, spreadsheets, presentations, and code files.
 
-Local path expected by default when available:
+Set `OMNIPARSE_SDK_PATH` to the SDK entrypoint of a local checkout of https://github.com/tyroneross/Omniparse, for example:
 
 ```text
-/Users/tyroneross/dev/git-folder/Omniparse/packages/sdk/dist/index.mjs
+<repos-root>/Omniparse/packages/sdk/dist/index.mjs
 ```
 
 Configure:

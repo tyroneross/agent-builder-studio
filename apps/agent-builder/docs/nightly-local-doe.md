@@ -52,7 +52,7 @@ Repo descriptor:
 ```json
 {
   "name": "interface-built-right",
-  "path": "/Users/tyroneross/dev/git-folder/interface-built-right",
+  "path": "<repos-root>/interface-built-right",
   "track": "ui-improvement"
 }
 ```

@@ -11,7 +11,6 @@ function loadPptxGen() {
     process.env.CODEX_RUNTIME_NODE_MODULES
       ? path.join(process.env.CODEX_RUNTIME_NODE_MODULES, "pptxgenjs")
       : null,
-    "/Users/tyroneross/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/pptxgenjs",
   ].filter(Boolean);
 
   const errors = [];

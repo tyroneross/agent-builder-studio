@@ -34,10 +34,9 @@ You can also use the dashboard register form and paste the same absolute path.
 After registration, the tool should appear in the tool list as
 `Sample External CLI`.
 
-The manifest includes an absolute `entry.path` for this checkout because the
-current contract requires external tool paths to start with `/`. If you copy the
-sample elsewhere, update `entry.path` to that directory's absolute path before
-registering it.
+The manifest includes a placeholder absolute `entry.path` because the current
+contract requires external tool paths to start with `/`. Replace it with the
+absolute path of this directory in your checkout before relying on it.
 
 ## Validate
 

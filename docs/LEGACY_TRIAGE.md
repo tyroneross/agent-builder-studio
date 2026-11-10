@@ -81,7 +81,7 @@ Keep `apps/chief-of-staff` as **compatibility-adapter**, not archive. Before any
 ### Flags (feed C2-style env/path cleanup if these are extracted)
 
 - **Node+Python coupling (harder extraction):** `run-artifact-agents.py` → shells to `write-pptx.mjs` (py:941, incidental monolith); `doe/run-local-json-doe.mjs` → spawns `doe.py` (mjs:52, clean intentional split).
-- **Hardcoded absolute paths:** `scripts/write-pptx.mjs:14` → `/Users/tyroneross/.cache/codex-runtimes/.../pptxgenjs`; generated data under `agent-outputs/…` and `generated/agents/solo-tool-agent/{manifest.json,sources.md}` carry `/Users/tyroneross/dev/git-folder/agent-builder/…` (note: path predates the `-studio` rename).
+- **Hardcoded absolute paths (fixed 2026-11-09):** `scripts/write-pptx.mjs` no longer lists a machine-specific pptxgenjs fallback (set `CODEX_RUNTIME_NODE_MODULES` instead); generated data under `agent-outputs/…` now uses `agent-outputs`-relative paths (note: `generated/agents/solo-tool-agent/{manifest.json,sources.md}` are not tracked in this repo).
 - **Secrets:** none. All model/network access is `process.env` (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `AGENT_BUILDER_LLM`).
 
 ### Summary

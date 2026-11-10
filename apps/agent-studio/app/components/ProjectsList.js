@@ -248,8 +248,8 @@ function ProjectListUL({ projects, activeProjectId, onOpen, handleRename, handle
 }
 
 // Truncate the middle of a long path for compactness:
-//   /Users/tyroneross/dev/git-folder/agent-studio/test
-//   -> /Users/tyron…/agent-studio/test
+//   /Users/example/dev/agent-studio/test
+//   -> /Users/exam…/agent-studio/test
 function truncatePath(p) {
   if (typeof p !== "string") return "";
   if (p.length <= 56) return p;
