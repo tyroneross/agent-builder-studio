@@ -67,7 +67,7 @@
   ],
   "models": [],
   "constraints": {
-    "outputRoot": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-19-deck7-doc5-dash3-focus-full",
+    "outputRoot": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-19-deck7-doc5-dash3-focus-full",
     "internetDownloads": "disabled",
     "externalLinks": "source references only",
     "macros": "forbidden",

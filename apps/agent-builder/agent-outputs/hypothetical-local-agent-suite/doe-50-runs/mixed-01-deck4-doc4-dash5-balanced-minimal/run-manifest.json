@@ -67,7 +67,7 @@
   ],
   "models": [],
   "constraints": {
-    "outputRoot": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-01-deck4-doc4-dash5-balanced-minimal",
+    "outputRoot": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-01-deck4-doc4-dash5-balanced-minimal",
     "internetDownloads": "disabled",
     "externalLinks": "source references only",
     "macros": "forbidden",

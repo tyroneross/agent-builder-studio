@@ -55,7 +55,7 @@
   ],
   "models": [],
   "constraints": {
-    "outputRoot": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/final",
+    "outputRoot": "agent-outputs/hypothetical-local-agent-suite/final",
     "internetDownloads": "disabled",
     "externalLinks": "source references only",
     "macros": "forbidden",

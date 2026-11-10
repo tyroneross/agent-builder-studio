@@ -1,10 +1,10 @@
 {
-  "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite",
+  "root": "agent-outputs/hypothetical-local-agent-suite",
   "profile": "full",
   "modelNotes": [],
   "final": {
     "runId": "final",
-    "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/final",
+    "root": "agent-outputs/hypothetical-local-agent-suite/final",
     "profile": {
       "name": "full",
       "deck_slides": 7,
@@ -175,7 +175,7 @@
     "runs": [
       {
         "runId": "mixed-01-deck4-doc4-dash5-balanced-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-01-deck4-doc4-dash5-balanced-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-01-deck4-doc4-dash5-balanced-minimal",
         "profile": {
           "name": "mixed-01",
           "deck_slides": 4,
@@ -248,7 +248,7 @@
       },
       {
         "runId": "mixed-02-deck5-doc6-dash4-delegate-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-02-deck5-doc6-dash4-delegate-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-02-deck5-doc6-dash4-delegate-role-card",
         "profile": {
           "name": "mixed-02",
           "deck_slides": 5,
@@ -321,7 +321,7 @@
       },
       {
         "runId": "mixed-03-deck6-doc3-dash3-research-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-03-deck6-doc3-dash3-research-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-03-deck6-doc3-dash3-research-full",
         "profile": {
           "name": "mixed-03",
           "deck_slides": 6,
@@ -394,7 +394,7 @@
       },
       {
         "runId": "mixed-04-deck7-doc5-dash6-focus-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-04-deck7-doc5-dash6-focus-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-04-deck7-doc5-dash6-focus-brief",
         "profile": {
           "name": "mixed-04",
           "deck_slides": 7,
@@ -467,7 +467,7 @@
       },
       {
         "runId": "mixed-05-deck8-doc7-dash5-recovery-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-05-deck8-doc7-dash5-recovery-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-05-deck8-doc7-dash5-recovery-minimal",
         "profile": {
           "name": "mixed-05",
           "deck_slides": 8,
@@ -540,7 +540,7 @@
       },
       {
         "runId": "mixed-06-deck4-doc4-dash4-balanced-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-06-deck4-doc4-dash4-balanced-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-06-deck4-doc4-dash4-balanced-role-card",
         "profile": {
           "name": "mixed-06",
           "deck_slides": 4,
@@ -613,7 +613,7 @@
       },
       {
         "runId": "mixed-07-deck5-doc6-dash3-delegate-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-07-deck5-doc6-dash3-delegate-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-07-deck5-doc6-dash3-delegate-full",
         "profile": {
           "name": "mixed-07",
           "deck_slides": 5,
@@ -686,7 +686,7 @@
       },
       {
         "runId": "mixed-08-deck6-doc3-dash6-research-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-08-deck6-doc3-dash6-research-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-08-deck6-doc3-dash6-research-brief",
         "profile": {
           "name": "mixed-08",
           "deck_slides": 6,
@@ -759,7 +759,7 @@
       },
       {
         "runId": "mixed-09-deck7-doc5-dash5-focus-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-09-deck7-doc5-dash5-focus-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-09-deck7-doc5-dash5-focus-minimal",
         "profile": {
           "name": "mixed-09",
           "deck_slides": 7,
@@ -832,7 +832,7 @@
       },
       {
         "runId": "mixed-10-deck8-doc7-dash4-recovery-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-10-deck8-doc7-dash4-recovery-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-10-deck8-doc7-dash4-recovery-role-card",
         "profile": {
           "name": "mixed-10",
           "deck_slides": 8,
@@ -905,7 +905,7 @@
       },
       {
         "runId": "mixed-11-deck4-doc4-dash3-balanced-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-11-deck4-doc4-dash3-balanced-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-11-deck4-doc4-dash3-balanced-full",
         "profile": {
           "name": "mixed-11",
           "deck_slides": 4,
@@ -978,7 +978,7 @@
       },
       {
         "runId": "mixed-12-deck5-doc6-dash6-delegate-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-12-deck5-doc6-dash6-delegate-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-12-deck5-doc6-dash6-delegate-brief",
         "profile": {
           "name": "mixed-12",
           "deck_slides": 5,
@@ -1051,7 +1051,7 @@
       },
       {
         "runId": "mixed-13-deck6-doc3-dash5-research-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-13-deck6-doc3-dash5-research-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-13-deck6-doc3-dash5-research-minimal",
         "profile": {
           "name": "mixed-13",
           "deck_slides": 6,
@@ -1124,7 +1124,7 @@
       },
       {
         "runId": "mixed-14-deck7-doc5-dash4-focus-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-14-deck7-doc5-dash4-focus-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-14-deck7-doc5-dash4-focus-role-card",
         "profile": {
           "name": "mixed-14",
           "deck_slides": 7,
@@ -1197,7 +1197,7 @@
       },
       {
         "runId": "mixed-15-deck8-doc7-dash3-recovery-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-15-deck8-doc7-dash3-recovery-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-15-deck8-doc7-dash3-recovery-full",
         "profile": {
           "name": "mixed-15",
           "deck_slides": 8,
@@ -1270,7 +1270,7 @@
       },
       {
         "runId": "mixed-16-deck4-doc4-dash6-balanced-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-16-deck4-doc4-dash6-balanced-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-16-deck4-doc4-dash6-balanced-brief",
         "profile": {
           "name": "mixed-16",
           "deck_slides": 4,
@@ -1343,7 +1343,7 @@
       },
       {
         "runId": "mixed-17-deck5-doc6-dash5-delegate-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-17-deck5-doc6-dash5-delegate-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-17-deck5-doc6-dash5-delegate-minimal",
         "profile": {
           "name": "mixed-17",
           "deck_slides": 5,
@@ -1416,7 +1416,7 @@
       },
       {
         "runId": "mixed-18-deck6-doc3-dash4-research-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-18-deck6-doc3-dash4-research-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-18-deck6-doc3-dash4-research-role-card",
         "profile": {
           "name": "mixed-18",
           "deck_slides": 6,
@@ -1489,7 +1489,7 @@
       },
       {
         "runId": "mixed-19-deck7-doc5-dash3-focus-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-19-deck7-doc5-dash3-focus-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-19-deck7-doc5-dash3-focus-full",
         "profile": {
           "name": "mixed-19",
           "deck_slides": 7,
@@ -1562,7 +1562,7 @@
       },
       {
         "runId": "mixed-20-deck8-doc7-dash6-recovery-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-20-deck8-doc7-dash6-recovery-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-20-deck8-doc7-dash6-recovery-brief",
         "profile": {
           "name": "mixed-20",
           "deck_slides": 8,
@@ -1635,7 +1635,7 @@
       },
       {
         "runId": "mixed-21-deck4-doc4-dash5-balanced-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-21-deck4-doc4-dash5-balanced-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-21-deck4-doc4-dash5-balanced-minimal",
         "profile": {
           "name": "mixed-21",
           "deck_slides": 4,
@@ -1708,7 +1708,7 @@
       },
       {
         "runId": "mixed-22-deck5-doc6-dash4-delegate-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-22-deck5-doc6-dash4-delegate-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-22-deck5-doc6-dash4-delegate-role-card",
         "profile": {
           "name": "mixed-22",
           "deck_slides": 5,
@@ -1781,7 +1781,7 @@
       },
       {
         "runId": "mixed-23-deck6-doc3-dash3-research-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-23-deck6-doc3-dash3-research-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-23-deck6-doc3-dash3-research-full",
         "profile": {
           "name": "mixed-23",
           "deck_slides": 6,
@@ -1854,7 +1854,7 @@
       },
       {
         "runId": "mixed-24-deck7-doc5-dash6-focus-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-24-deck7-doc5-dash6-focus-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-24-deck7-doc5-dash6-focus-brief",
         "profile": {
           "name": "mixed-24",
           "deck_slides": 7,
@@ -1927,7 +1927,7 @@
       },
       {
         "runId": "mixed-25-deck8-doc7-dash5-recovery-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-25-deck8-doc7-dash5-recovery-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-25-deck8-doc7-dash5-recovery-minimal",
         "profile": {
           "name": "mixed-25",
           "deck_slides": 8,
@@ -2000,7 +2000,7 @@
       },
       {
         "runId": "mixed-26-deck4-doc4-dash4-balanced-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-26-deck4-doc4-dash4-balanced-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-26-deck4-doc4-dash4-balanced-role-card",
         "profile": {
           "name": "mixed-26",
           "deck_slides": 4,
@@ -2073,7 +2073,7 @@
       },
       {
         "runId": "mixed-27-deck5-doc6-dash3-delegate-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-27-deck5-doc6-dash3-delegate-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-27-deck5-doc6-dash3-delegate-full",
         "profile": {
           "name": "mixed-27",
           "deck_slides": 5,
@@ -2146,7 +2146,7 @@
       },
       {
         "runId": "mixed-28-deck6-doc3-dash6-research-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-28-deck6-doc3-dash6-research-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-28-deck6-doc3-dash6-research-brief",
         "profile": {
           "name": "mixed-28",
           "deck_slides": 6,
@@ -2219,7 +2219,7 @@
       },
       {
         "runId": "mixed-29-deck7-doc5-dash5-focus-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-29-deck7-doc5-dash5-focus-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-29-deck7-doc5-dash5-focus-minimal",
         "profile": {
           "name": "mixed-29",
           "deck_slides": 7,
@@ -2292,7 +2292,7 @@
       },
       {
         "runId": "mixed-30-deck8-doc7-dash4-recovery-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-30-deck8-doc7-dash4-recovery-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-30-deck8-doc7-dash4-recovery-role-card",
         "profile": {
           "name": "mixed-30",
           "deck_slides": 8,
@@ -2365,7 +2365,7 @@
       },
       {
         "runId": "mixed-31-deck4-doc4-dash3-balanced-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-31-deck4-doc4-dash3-balanced-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-31-deck4-doc4-dash3-balanced-full",
         "profile": {
           "name": "mixed-31",
           "deck_slides": 4,
@@ -2438,7 +2438,7 @@
       },
       {
         "runId": "mixed-32-deck5-doc6-dash6-delegate-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-32-deck5-doc6-dash6-delegate-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-32-deck5-doc6-dash6-delegate-brief",
         "profile": {
           "name": "mixed-32",
           "deck_slides": 5,
@@ -2511,7 +2511,7 @@
       },
       {
         "runId": "mixed-33-deck6-doc3-dash5-research-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-33-deck6-doc3-dash5-research-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-33-deck6-doc3-dash5-research-minimal",
         "profile": {
           "name": "mixed-33",
           "deck_slides": 6,
@@ -2584,7 +2584,7 @@
       },
       {
         "runId": "mixed-34-deck7-doc5-dash4-focus-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-34-deck7-doc5-dash4-focus-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-34-deck7-doc5-dash4-focus-role-card",
         "profile": {
           "name": "mixed-34",
           "deck_slides": 7,
@@ -2657,7 +2657,7 @@
       },
       {
         "runId": "mixed-35-deck8-doc7-dash3-recovery-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-35-deck8-doc7-dash3-recovery-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-35-deck8-doc7-dash3-recovery-full",
         "profile": {
           "name": "mixed-35",
           "deck_slides": 8,
@@ -2730,7 +2730,7 @@
       },
       {
         "runId": "mixed-36-deck4-doc4-dash6-balanced-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-36-deck4-doc4-dash6-balanced-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-36-deck4-doc4-dash6-balanced-brief",
         "profile": {
           "name": "mixed-36",
           "deck_slides": 4,
@@ -2803,7 +2803,7 @@
       },
       {
         "runId": "mixed-37-deck5-doc6-dash5-delegate-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-37-deck5-doc6-dash5-delegate-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-37-deck5-doc6-dash5-delegate-minimal",
         "profile": {
           "name": "mixed-37",
           "deck_slides": 5,
@@ -2876,7 +2876,7 @@
       },
       {
         "runId": "mixed-38-deck6-doc3-dash4-research-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-38-deck6-doc3-dash4-research-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-38-deck6-doc3-dash4-research-role-card",
         "profile": {
           "name": "mixed-38",
           "deck_slides": 6,
@@ -2949,7 +2949,7 @@
       },
       {
         "runId": "mixed-39-deck7-doc5-dash3-focus-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-39-deck7-doc5-dash3-focus-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-39-deck7-doc5-dash3-focus-full",
         "profile": {
           "name": "mixed-39",
           "deck_slides": 7,
@@ -3022,7 +3022,7 @@
       },
       {
         "runId": "mixed-40-deck8-doc7-dash6-recovery-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-40-deck8-doc7-dash6-recovery-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-40-deck8-doc7-dash6-recovery-brief",
         "profile": {
           "name": "mixed-40",
           "deck_slides": 8,
@@ -3095,7 +3095,7 @@
       },
       {
         "runId": "mixed-41-deck4-doc4-dash5-balanced-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-41-deck4-doc4-dash5-balanced-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-41-deck4-doc4-dash5-balanced-minimal",
         "profile": {
           "name": "mixed-41",
           "deck_slides": 4,
@@ -3168,7 +3168,7 @@
       },
       {
         "runId": "mixed-42-deck5-doc6-dash4-delegate-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-42-deck5-doc6-dash4-delegate-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-42-deck5-doc6-dash4-delegate-role-card",
         "profile": {
           "name": "mixed-42",
           "deck_slides": 5,
@@ -3241,7 +3241,7 @@
       },
       {
         "runId": "mixed-43-deck6-doc3-dash3-research-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-43-deck6-doc3-dash3-research-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-43-deck6-doc3-dash3-research-full",
         "profile": {
           "name": "mixed-43",
           "deck_slides": 6,
@@ -3314,7 +3314,7 @@
       },
       {
         "runId": "mixed-44-deck7-doc5-dash6-focus-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-44-deck7-doc5-dash6-focus-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-44-deck7-doc5-dash6-focus-brief",
         "profile": {
           "name": "mixed-44",
           "deck_slides": 7,
@@ -3387,7 +3387,7 @@
       },
       {
         "runId": "mixed-45-deck8-doc7-dash5-recovery-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-45-deck8-doc7-dash5-recovery-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-45-deck8-doc7-dash5-recovery-minimal",
         "profile": {
           "name": "mixed-45",
           "deck_slides": 8,
@@ -3460,7 +3460,7 @@
       },
       {
         "runId": "mixed-46-deck4-doc4-dash4-balanced-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-46-deck4-doc4-dash4-balanced-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-46-deck4-doc4-dash4-balanced-role-card",
         "profile": {
           "name": "mixed-46",
           "deck_slides": 4,
@@ -3533,7 +3533,7 @@
       },
       {
         "runId": "mixed-47-deck5-doc6-dash3-delegate-full",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-47-deck5-doc6-dash3-delegate-full",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-47-deck5-doc6-dash3-delegate-full",
         "profile": {
           "name": "mixed-47",
           "deck_slides": 5,
@@ -3606,7 +3606,7 @@
       },
       {
         "runId": "mixed-48-deck6-doc3-dash6-research-brief",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-48-deck6-doc3-dash6-research-brief",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-48-deck6-doc3-dash6-research-brief",
         "profile": {
           "name": "mixed-48",
           "deck_slides": 6,
@@ -3679,7 +3679,7 @@
       },
       {
         "runId": "mixed-49-deck7-doc5-dash5-focus-minimal",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-49-deck7-doc5-dash5-focus-minimal",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-49-deck7-doc5-dash5-focus-minimal",
         "profile": {
           "name": "mixed-49",
           "deck_slides": 7,
@@ -3752,7 +3752,7 @@
       },
       {
         "runId": "mixed-50-deck8-doc7-dash4-recovery-role-card",
-        "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-50-deck8-doc7-dash4-recovery-role-card",
+        "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-50-deck8-doc7-dash4-recovery-role-card",
         "profile": {
           "name": "mixed-50",
           "deck_slides": 8,
@@ -3826,7 +3826,7 @@
     ],
     "best": {
       "runId": "mixed-05-deck8-doc7-dash5-recovery-minimal",
-      "root": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-05-deck8-doc7-dash5-recovery-minimal",
+      "root": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-05-deck8-doc7-dash5-recovery-minimal",
       "profile": {
         "name": "mixed-05",
         "deck_slides": 8,

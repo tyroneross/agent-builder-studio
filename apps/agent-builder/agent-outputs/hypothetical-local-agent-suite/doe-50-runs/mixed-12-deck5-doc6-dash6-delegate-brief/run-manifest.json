@@ -67,7 +67,7 @@
   ],
   "models": [],
   "constraints": {
-    "outputRoot": "/Users/tyroneross/dev/git-folder/agent-builder/agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-12-deck5-doc6-dash6-delegate-brief",
+    "outputRoot": "agent-outputs/hypothetical-local-agent-suite/doe-50-runs/mixed-12-deck5-doc6-dash6-delegate-brief",
     "internetDownloads": "disabled",
     "externalLinks": "source references only",
     "macros": "forbidden",
